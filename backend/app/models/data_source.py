@@ -1,15 +1,22 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
 
 
-class Project(Base):
-    __tablename__ = "projects"
+class DataSource(Base):
+    __tablename__ = "data_sources"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "name",
+            name="uq_data_sources_project_name",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -17,9 +24,9 @@ class Project(Base):
         default=uuid.uuid4,
     )
 
-    client_id: Mapped[uuid.UUID] = mapped_column(
+    project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("clients.id", ondelete="CASCADE"),
+        ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -29,16 +36,26 @@ class Project(Base):
         nullable=False,
     )
 
+    source_type: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+    )
+
     description: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
 
-    status: Mapped[str] = mapped_column(
+    connection_mode: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        default="active",
-        server_default="active",
+    )
+
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
     )
 
     created_at: Mapped[datetime] = mapped_column(
@@ -54,13 +71,7 @@ class Project(Base):
         nullable=False,
     )
 
-    client = relationship(
-        "Client",
-        back_populates="projects",
-    )
-
-    data_sources = relationship(
-        "DataSource",
-        back_populates="project",
-        cascade="all, delete-orphan",
+    project = relationship(
+        "Project",
+        back_populates="data_sources",
     )
