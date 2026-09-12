@@ -1,0 +1,4 @@
+"use client";
+import {useEffect,useState} from "react";import ProjectForm from "../../components/ProjectForm";import {getProjects} from "../../lib/api";import type {Project} from "../../lib/types";
+export default function Page(){const [items,setItems]=useState<Project[]>([]);async function refresh(){setItems(await getProjects())}useEffect(()=>{refresh().catch(()=>setItems([]))},[]);
+return <><header><div><h1>Projects</h1><p>Manage governance initiatives and assessments.</p></div></header><div className="two"><section className="card"><h3>Project List</h3><table><thead><tr><th>Name</th><th>Status</th></tr></thead><tbody>{items.map(x=><tr key={x.id}><td>{x.name}</td><td>{x.status}</td></tr>)}</tbody></table></section><section className="card"><h3>Create Project</h3><ProjectForm onCreated={()=>refresh()}/></section></div></>;}
