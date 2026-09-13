@@ -127,3 +127,10 @@ class DataField(Base):
         back_populates="data_field",
         cascade="all, delete-orphan",
     )
+
+    governance_metadata = relationship(
+        "FieldGovernanceMetadata",
+        back_populates="data_field",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
