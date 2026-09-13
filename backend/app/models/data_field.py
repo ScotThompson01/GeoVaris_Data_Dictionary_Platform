@@ -121,3 +121,9 @@ class DataField(Base):
         "SourceObject",
         back_populates="data_fields",
     )
+
+    profiling_results = relationship(
+        "ProfilingResult",
+        back_populates="data_field",
+        cascade="all, delete-orphan",
+    )
