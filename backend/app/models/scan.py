@@ -66,3 +66,9 @@ class Scan(Base):
         "DataSource",
         back_populates="scans",
     )
+
+    profiling_results = relationship(
+        "ProfilingResult",
+        back_populates="scan",
+        cascade="all, delete-orphan",
+    )

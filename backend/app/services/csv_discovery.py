@@ -10,6 +10,7 @@ from app.models.data_field import DataField
 from app.models.data_source import DataSource
 from app.models.scan import Scan
 from app.models.source_object import SourceObject
+from app.services.csv_profiling import profile_csv
 
 
 def discover_csv(
@@ -18,15 +19,28 @@ def discover_csv(
     file_path: Path,
 ) -> Scan:
     """
-    Discover technical metadata from a CSV file.
+    Discover technical metadata from a CSV file and run basic profiling.
 
-    The source file is read-only. Only normalized metadata is persisted.
+    The source CSV is read-only.
+
+    Persisted information includes:
+    - Scan execution metadata
+    - Source Object metadata
+    - Data Field metadata
+    - Aggregate Profiling Results
+
+    Raw CSV rows are not persisted.
     """
 
-    data_source = db.get(DataSource, data_source_id)
+    data_source = db.get(
+        DataSource,
+        data_source_id,
+    )
 
     if data_source is None:
-        raise ValueError("Data source not found.")
+        raise ValueError(
+            "Data source not found."
+        )
 
     if data_source.source_type != "csv":
         raise ValueError(
@@ -48,14 +62,24 @@ def discover_csv(
     db.refresh(scan)
 
     try:
-        discovered = connector.discover(file_path)
+        # ---------------------------------------------------------
+        # 1. Discover normalized metadata from the CSV
+        # ---------------------------------------------------------
 
-        statement = select(SourceObject).where(
-            SourceObject.data_source_id == data_source.id,
-            SourceObject.object_name == discovered.object_name,
+        discovered = connector.discover(
+            file_path
         )
 
-        source_object = db.scalar(statement)
+        # ---------------------------------------------------------
+        # 2. Find or create the Source Object
+        # ---------------------------------------------------------
+
+        source_object = db.scalar(
+            select(SourceObject).where(
+                SourceObject.data_source_id == data_source.id,
+                SourceObject.object_name == discovered.object_name,
+            )
+        )
 
         if source_object is None:
             source_object = SourceObject(
@@ -67,12 +91,18 @@ def discover_csv(
             )
 
             db.add(source_object)
+
+            # Generate the SourceObject ID without committing yet.
             db.flush()
 
         else:
             source_object.object_type = discovered.object_type
             source_object.native_name = discovered.native_name
             source_object.row_count = discovered.row_count
+
+        # ---------------------------------------------------------
+        # 3. Load existing Data Fields
+        # ---------------------------------------------------------
 
         existing_fields = {
             field.field_name: field
@@ -83,48 +113,98 @@ def discover_csv(
             ).all()
         }
 
-        discovered_names = set()
+        # ---------------------------------------------------------
+        # 4. Create or update discovered Data Fields
+        # ---------------------------------------------------------
 
         for discovered_field in discovered.fields:
-            discovered_names.add(discovered_field.field_name)
-
-            existing_field = existing_fields.get(
+            data_field = existing_fields.get(
                 discovered_field.field_name
             )
 
-            if existing_field is None:
-                existing_field = DataField(
+            if data_field is None:
+                data_field = DataField(
                     source_object_id=source_object.id,
                     field_name=discovered_field.field_name,
                     ordinal_position=discovered_field.ordinal_position,
                 )
 
-                db.add(existing_field)
+                db.add(data_field)
 
-            existing_field.ordinal_position = (
+            data_field.ordinal_position = (
                 discovered_field.ordinal_position
             )
-            existing_field.native_data_type = (
+
+            data_field.native_data_type = (
                 discovered_field.native_data_type
             )
-            existing_field.normalized_data_type = (
+
+            data_field.normalized_data_type = (
                 discovered_field.normalized_data_type
             )
-            existing_field.max_length = (
+
+            data_field.max_length = (
                 discovered_field.max_length
             )
-            existing_field.numeric_precision = (
+
+            data_field.numeric_precision = (
                 discovered_field.numeric_precision
             )
-            existing_field.numeric_scale = (
+
+            data_field.numeric_scale = (
                 discovered_field.numeric_scale
             )
-            existing_field.is_nullable = (
+
+            data_field.is_nullable = (
                 discovered_field.is_nullable
             )
 
+            data_field.is_primary_key = (
+                discovered_field.is_primary_key
+            )
+
+            data_field.is_unique = (
+                discovered_field.is_unique
+            )
+
+            data_field.source_comment = (
+                discovered_field.source_comment
+            )
+
+        # Ensure all new/updated fields are available to the
+        # profiling service before profiling begins.
+        db.flush()
+
+        # ---------------------------------------------------------
+        # 5. Run basic CSV profiling
+        # ---------------------------------------------------------
+
+        profile_csv(
+            db=db,
+            scan_id=scan.id,
+            source_object_id=source_object.id,
+            file_path=file_path,
+        )
+
+        # ---------------------------------------------------------
+        # 6. Mark the Scan completed
+        # ---------------------------------------------------------
+
+        scan = db.get(
+            Scan,
+            scan.id,
+        )
+
+        if scan is None:
+            raise RuntimeError(
+                "Scan record could not be reloaded."
+            )
+
         scan.status = "completed"
-        scan.completed_at = datetime.now(timezone.utc)
+        scan.completed_at = datetime.now(
+            timezone.utc
+        )
+        scan.error_message = None
 
         db.commit()
         db.refresh(scan)
@@ -132,15 +212,23 @@ def discover_csv(
         return scan
 
     except Exception as exc:
+        # Roll back any uncommitted metadata changes.
         db.rollback()
 
-        failed_scan = db.get(Scan, scan.id)
+        failed_scan = db.get(
+            Scan,
+            scan.id,
+        )
 
         if failed_scan is not None:
             failed_scan.status = "failed"
-            failed_scan.completed_at = datetime.now(timezone.utc)
 
-            # Keep API/database errors useful without logging source rows.
+            failed_scan.completed_at = datetime.now(
+                timezone.utc
+            )
+
+            # Store a bounded diagnostic message.
+            # Raw source rows are never intentionally logged here.
             failed_scan.error_message = str(exc)[:2000]
 
             db.commit()
