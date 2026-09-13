@@ -75,3 +75,15 @@ class DataSource(Base):
         "Project",
         back_populates="data_sources",
     )
+
+    scans = relationship(
+        "Scan",
+        back_populates="data_source",
+        cascade="all, delete-orphan",
+    )
+
+    source_objects = relationship(
+        "SourceObject",
+        back_populates="data_source",
+        cascade="all, delete-orphan",
+    )
