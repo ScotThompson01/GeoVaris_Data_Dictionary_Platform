@@ -22,6 +22,8 @@ services:
       - .env
     ports:
       - "8000:8000"
+    volumes:
+      - ./sample_data:/data/samples:ro
     depends_on:
       db:
         condition: service_healthy

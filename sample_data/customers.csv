@@ -1,0 +1,6 @@
+customer_id,first_name,last_name,email,status,signup_date,latitude,longitude
+1001,Avery,Stone,avery.stone@example.test,ACTIVE,2026-01-15,29.7604,-95.3698
+1002,Jordan,Lee,jordan.lee@example.test,ACTIVE,2026-02-03,30.2672,-97.7431
+1003,Morgan,Reed,morgan.reed@example.test,INACTIVE,2026-02-19,32.7767,-96.7970
+1004,Casey,Blake,casey.blake@example.test,ACTIVE,2026-03-08,29.4241,-98.4936
+1005,Riley,Grant,riley.grant@example.test,PLANNED,2026-03-22,30.3322,-81.6557
