@@ -11,7 +11,9 @@ export default function Sidebar(){
       <Link href="/clients">Clients</Link>
       <Link href="/projects">Projects</Link>
       <div className="disabled">Data Sources <small>Soon</small></div>
-      <div className="disabled">Data Dictionary <small>Soon</small></div>
+      <Link href="/dictionary">
+  Data Dictionary
+</Link>
       <div className="disabled">Data Quality <small>Soon</small></div>
     </nav>
   </aside>;
