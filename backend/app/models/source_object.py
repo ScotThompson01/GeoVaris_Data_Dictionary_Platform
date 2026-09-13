@@ -77,3 +77,10 @@ class SourceObject(Base):
         "DataSource",
         back_populates="source_objects",
     )
+    
+    data_fields = relationship(
+        "DataField",
+        back_populates="source_object",
+        cascade="all, delete-orphan",
+    )
+

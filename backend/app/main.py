@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.api.routes import clients, data_sources, health, projects, scans, source_objects
+from app.api.routes import clients,data_fields, data_sources, health, projects, scans, source_objects
 from app.core.config import settings
 app=FastAPI(title=settings.app_name,version="0.2.0",description="GeoVaris Data Dictionary & Data Quality Platform API")
 app.add_middleware(CORSMiddleware,allow_origins=[settings.frontend_origin],allow_credentials=False,allow_methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"],allow_headers=["Content-Type","Authorization"])
@@ -22,4 +22,10 @@ app.include_router(
     source_objects.router,
     prefix="/api/v1/source-objects",
     tags=["Source Objects"],
+)
+
+app.include_router(
+    data_fields.router,
+    prefix="/api/v1/data-fields",
+    tags=["Data Fields"],
 )
