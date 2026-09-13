@@ -385,3 +385,150 @@ th {
         width: 100%;
     }
 }
+
+.dictionary-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+}
+
+.dictionary-table-card {
+    min-width: 0;
+}
+
+.dictionary-layout:has(.governance-panel) {
+    grid-template-columns:
+        minmax(0, 1fr) minmax(380px, 480px);
+}
+
+.selected-row {
+    background: #faf7ff;
+}
+
+.edit-governance-button {
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 7px 10px;
+    background: white;
+    color: var(--p);
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.edit-governance-button:hover {
+    background: #f6f1ff;
+}
+
+.governance-panel {
+    align-self: start;
+    padding: 22px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: white;
+    box-shadow: 0 12px 30px rgba(38, 26, 86, 0.08);
+}
+
+.governance-panel-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 20px;
+}
+
+.governance-panel-header h2 {
+    margin: 3px 0 5px;
+}
+
+.governance-panel-header p {
+    margin: 0;
+    color: var(--muted);
+}
+
+.eyebrow {
+    color: var(--p) !important;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.1em;
+}
+
+.governance-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.governance-form label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.governance-form input,
+.governance-form textarea,
+.governance-form select {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 11px;
+    background: white;
+    color: var(--text);
+    font: inherit;
+    font-weight: 400;
+}
+
+.governance-form textarea {
+    resize: vertical;
+}
+
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+
+.checkbox-row {
+    flex-direction: row !important;
+    align-items: center;
+    gap: 9px !important;
+}
+
+.checkbox-row input {
+    width: auto;
+}
+
+.governance-form button[type="submit"] {
+    border: 0;
+    border-radius: 10px;
+    padding: 11px 14px;
+    background: linear-gradient(90deg,
+            var(--p),
+            var(--b));
+    color: white;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.governance-form button[type="submit"]:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
+@media (max-width: 1200px) {
+    .dictionary-layout:has(.governance-panel) {
+        grid-template-columns: 1fr;
+    }
+
+    .governance-panel {
+        order: -1;
+    }
+}
+
+@media (max-width: 700px) {
+    .form-grid {
+        grid-template-columns: 1fr;
+    }
+}
