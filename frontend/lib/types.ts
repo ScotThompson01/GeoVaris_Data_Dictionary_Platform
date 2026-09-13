@@ -21,3 +21,39 @@ export type DictionaryField = {
   data_source_name: string;
   source_type: string;
 };
+
+export type FieldGovernanceMetadata = {
+  id: string | null;
+  data_field_id: string;
+
+  business_name: string | null;
+  business_definition: string | null;
+  department: string | null;
+  data_owner: string | null;
+  data_steward: string | null;
+  business_process: string | null;
+  system_of_record: string | null;
+
+  is_cde: boolean;
+  classification: string | null;
+  approval_status: string;
+  notes: string | null;
+
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+export type FieldGovernanceUpdate = {
+  business_name?: string | null;
+  business_definition?: string | null;
+  department?: string | null;
+  data_owner?: string | null;
+  data_steward?: string | null;
+  business_process?: string | null;
+  system_of_record?: string | null;
+
+  is_cde?: boolean;
+  classification?: string | null;
+  approval_status?: string;
+  notes?: string | null;
+};

@@ -1,4 +1,5 @@
-import type { Client, DictionaryField, Project } from "./types";
+import type { Client, DictionaryField, FieldGovernanceMetadata,
+  FieldGovernanceUpdate, Project } from "./types";
 
 const API_URL =
   typeof window === "undefined"
@@ -36,5 +37,37 @@ export async function getDictionaryFields(
     await fetch(url, {
       cache: "no-store",
     })
+  );
+}
+
+export async function getFieldGovernance(
+  dataFieldId: string,
+): Promise<FieldGovernanceMetadata> {
+  return parse<FieldGovernanceMetadata>(
+    await fetch(
+      `${API_URL}/api/v1/field-governance/${dataFieldId}`,
+      {
+        cache: "no-store",
+      },
+    ),
+  );
+}
+
+
+export async function saveFieldGovernance(
+  dataFieldId: string,
+  payload: FieldGovernanceUpdate,
+): Promise<FieldGovernanceMetadata> {
+  return parse<FieldGovernanceMetadata>(
+    await fetch(
+      `${API_URL}/api/v1/field-governance/${dataFieldId}`,
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      },
+    ),
   );
 }
