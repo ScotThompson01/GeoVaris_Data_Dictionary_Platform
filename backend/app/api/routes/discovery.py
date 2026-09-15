@@ -1,12 +1,26 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+)
 from sqlalchemy.orm import Session
 
+from app.connectors.database.base import (
+    DatabaseConnectionConfig,
+)
 from app.db.session import get_db
-from app.schemas.discovery import CSVDiscoveryRequest
+from app.schemas.discovery import (
+    CSVDiscoveryRequest,
+    PostgreSQLDiscoveryRequest,
+)
 from app.schemas.scan import ScanRead
 from app.services.csv_discovery import discover_csv
+from app.services.postgresql_discovery import (
+    discover_postgresql,
+)
 
 router = APIRouter()
 
@@ -62,3 +76,67 @@ def run_csv_discovery(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="CSV discovery failed.",
         )
+
+
+@router.post(
+    "/postgresql",
+    response_model=ScanRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def run_postgresql_discovery(
+    payload: PostgreSQLDiscoveryRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Run read-only PostgreSQL metadata discovery.
+
+    Connection credentials are runtime-only and are not persisted
+    by the discovery service.
+    """
+
+    connection_config = DatabaseConnectionConfig(
+        host=payload.host,
+        port=payload.port,
+        database=payload.database,
+        username=payload.username,
+        ssl_mode=payload.ssl_mode,
+        connect_timeout_seconds=(
+            payload.connect_timeout_seconds
+        ),
+    )
+
+    password = (
+        payload.password.get_secret_value()
+        if payload.password is not None
+        else None
+    )
+
+    try:
+        return discover_postgresql(
+            db=db,
+            data_source_id=payload.data_source_id,
+            connection_config=connection_config,
+            password=password,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    except ConnectionError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Unable to connect to or discover metadata "
+                "from the PostgreSQL source."
+            ),
+        )
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="PostgreSQL discovery failed.",
+        )
+        
