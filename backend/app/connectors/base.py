@@ -44,6 +44,7 @@ class DiscoveredObject:
     object_name: str
     native_name: str
 
+    schema_name: str | None = None
     row_count: int | None = None
 
     fields: list[DiscoveredField] = field(

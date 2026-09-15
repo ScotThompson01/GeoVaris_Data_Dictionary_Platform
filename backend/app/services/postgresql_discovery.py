@@ -1,37 +1,33 @@
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from app.connectors.csv_connector import CSVConnector
+from app.connectors.database.base import DatabaseConnectionConfig
+from app.connectors.database.postgresql_connector import (
+    PostgreSQLConnector,
+)
 from app.models.data_source import DataSource
 from app.models.scan import Scan
-from app.services.csv_profiling import profile_csv
 from app.services.discovery_persistence import (
     persist_discovered_object,
 )
 
 
-def discover_csv(
+def discover_postgresql(
     db: Session,
     data_source_id: uuid.UUID,
-    file_path: Path,
+    connection_config: DatabaseConnectionConfig,
+    password: str | None = None,
 ) -> Scan:
     """
-    Discover technical metadata from a CSV file and run basic profiling.
+    Discover PostgreSQL technical metadata and persist it in GeoVaris.
 
-    The source CSV is read-only.
+    Connection credentials are supplied at runtime and are not
+    persisted by this service.
 
-    Persisted information includes:
-    - Scan execution metadata
-    - Source Object metadata
-    - Data Field metadata
-    - Aggregate Profiling Results
-
-    Raw CSV rows are not persisted.
-
-    Human-maintained governance metadata is not modified.
+    PostgreSQL discovery is metadata-only and uses the connector's
+    read-only database session.
     """
 
     # ---------------------------------------------------------
@@ -48,12 +44,17 @@ def discover_csv(
             "Data source not found."
         )
 
-    if data_source.source_type != "csv":
+    if data_source.source_type != "postgresql":
         raise ValueError(
-            "CSV discovery requires a CSV data source."
+            "PostgreSQL discovery requires a PostgreSQL data source."
         )
 
-    connector = CSVConnector()
+    if not data_source.is_active:
+        raise ValueError(
+            "PostgreSQL data source is inactive."
+        )
+
+    connector = PostgreSQLConnector()
 
     # ---------------------------------------------------------
     # 2. Create the scan record
@@ -73,33 +74,33 @@ def discover_csv(
 
     try:
         # -----------------------------------------------------
-        # 3. Discover normalized metadata from the CSV
+        # 3. Validate the read-only PostgreSQL connection
         # -----------------------------------------------------
 
-        discovered = connector.discover(
-            file_path
+        connector.validate_connection(
+            config=connection_config,
+            password=password,
         )
 
         # -----------------------------------------------------
-        # 4. Persist normalized discovery metadata
+        # 4. Discover normalized PostgreSQL metadata
         # -----------------------------------------------------
 
-        source_object = persist_discovered_object(
-            db=db,
-            data_source=data_source,
-            discovered=discovered,
+        discovered_objects = connector.discover_objects(
+            config=connection_config,
+            password=password,
         )
 
         # -----------------------------------------------------
-        # 5. Run basic CSV profiling
+        # 5. Persist every discovered object and its fields
         # -----------------------------------------------------
 
-        profile_csv(
-            db=db,
-            scan_id=scan.id,
-            source_object_id=source_object.id,
-            file_path=file_path,
-        )
+        for discovered_object in discovered_objects:
+            persist_discovered_object(
+                db=db,
+                data_source=data_source,
+                discovered=discovered_object,
+            )
 
         # -----------------------------------------------------
         # 6. Mark the scan completed
@@ -127,12 +128,11 @@ def discover_csv(
         return scan
 
     except Exception as exc:
-        # Roll back any uncommitted discovery, field, or
-        # profiling changes.
+        # Roll back any uncommitted discovery changes.
         db.rollback()
 
-        # The scan itself was committed before discovery began,
-        # so reload it and record the failed execution.
+        # The initial scan record was committed before discovery,
+        # so it can be reloaded and marked as failed.
         failed_scan = db.get(
             Scan,
             scan.id,
@@ -145,12 +145,11 @@ def discover_csv(
                 timezone.utc
             )
 
-            # Keep diagnostics bounded. Raw source rows are
-            # never intentionally stored in this message.
+            # Keep diagnostics bounded. Credentials are never
+            # intentionally included in this message.
             failed_scan.error_message = str(exc)[:2000]
 
             db.commit()
             db.refresh(failed_scan)
 
         raise
-        

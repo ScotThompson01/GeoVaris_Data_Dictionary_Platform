@@ -69,9 +69,10 @@ class PostgreSQLConnector(BaseDatabaseConnector):
         password: str | None = None,
     ) -> list[DiscoveredObject]:
         """
-        Discover user-accessible PostgreSQL tables and views.
+        Discover accessible PostgreSQL tables and views.
 
-        System schemas are excluded. Only metadata is queried.
+        Discovery uses PostgreSQL catalog metadata only.
+        Source records are not modified.
         """
 
         try:
@@ -136,6 +137,7 @@ class PostgreSQLConnector(BaseDatabaseConnector):
                                 native_name=(
                                     f"{schema_name}.{object_name}"
                                 ),
+                                schema_name=schema_name,
                                 row_count=None,
                                 fields=fields,
                             )
@@ -325,7 +327,8 @@ class PostgreSQLConnector(BaseDatabaseConnector):
         if (
             value.startswith("character varying")
             or value.startswith("character(")
-            or value in {
+            or value
+            in {
                 "text",
                 "name",
             }
