@@ -1,6 +1,8 @@
 import uuid
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.connectors.base import (
     DiscoveredField,
     DiscoveredObject,
@@ -107,4 +109,165 @@ def test_discover_postgresql_persists_objects_and_completes_scan(
     assert result.completed_at is not None
     assert result.error_message is None
 
+    assert db.commit.call_count == 2
+
+
+def test_discover_postgresql_rejects_missing_data_source():
+    data_source_id = uuid.uuid4()
+
+    db = MagicMock()
+    db.get.return_value = None
+
+    config = DatabaseConnectionConfig(
+        host="postgres.internal",
+        port=5432,
+        database="customer_database",
+        username="readonly_user",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Data source not found",
+    ):
+        discover_postgresql(
+            db=db,
+            data_source_id=data_source_id,
+            connection_config=config,
+            password="runtime-only-password",
+        )
+
+    db.add.assert_not_called()
+    db.commit.assert_not_called()
+
+
+def test_discover_postgresql_rejects_wrong_source_type():
+    data_source = DataSource(
+        id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        name="Wrong Source",
+        source_type="sqlserver",
+        connection_mode="database",
+        is_active=True,
+    )
+
+    db = MagicMock()
+    db.get.return_value = data_source
+
+    config = DatabaseConnectionConfig(
+        host="postgres.internal",
+        port=5432,
+        database="customer_database",
+        username="readonly_user",
+    )
+
+    with pytest.raises(ValueError):
+        discover_postgresql(
+            db=db,
+            data_source_id=data_source.id,
+            connection_config=config,
+            password="runtime-only-password",
+        )
+
+    db.add.assert_not_called()
+    db.commit.assert_not_called()
+
+
+def test_discover_postgresql_rejects_inactive_data_source():
+    data_source = DataSource(
+        id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        name="Inactive PostgreSQL",
+        source_type="postgresql",
+        connection_mode="database",
+        is_active=False,
+    )
+
+    db = MagicMock()
+    db.get.return_value = data_source
+
+    config = DatabaseConnectionConfig(
+        host="postgres.internal",
+        port=5432,
+        database="customer_database",
+        username="readonly_user",
+    )
+
+    with pytest.raises(ValueError):
+        discover_postgresql(
+            db=db,
+            data_source_id=data_source.id,
+            connection_config=config,
+            password="runtime-only-password",
+        )
+
+    db.add.assert_not_called()
+    db.commit.assert_not_called()
+
+
+@patch(
+    "app.services.postgresql_discovery.PostgreSQLConnector"
+)
+def test_discover_postgresql_marks_scan_failed_on_connection_error(
+    mock_connector_class,
+):
+    data_source_id = uuid.uuid4()
+    scan_id = uuid.uuid4()
+
+    data_source = DataSource(
+        id=data_source_id,
+        project_id=uuid.uuid4(),
+        name="Test PostgreSQL",
+        source_type="postgresql",
+        connection_mode="database",
+        is_active=True,
+    )
+
+    scan = Scan(
+        id=scan_id,
+        data_source_id=data_source_id,
+        scan_type="metadata",
+        status="running",
+    )
+
+    connector = mock_connector_class.return_value
+    connector.connector_version = "0.2.0"
+    connector.validate_connection.side_effect = ConnectionError(
+        "Unable to connect to PostgreSQL."
+    )
+
+    db = MagicMock()
+
+    db.get.side_effect = [
+        data_source,
+        scan,
+    ]
+
+    db.refresh.side_effect = None
+
+    config = DatabaseConnectionConfig(
+        host="postgres.internal",
+        port=5432,
+        database="customer_database",
+        username="readonly_user",
+    )
+
+    with pytest.raises(
+        ConnectionError,
+        match="Unable to connect to PostgreSQL",
+    ):
+        discover_postgresql(
+            db=db,
+            data_source_id=data_source_id,
+            connection_config=config,
+            password="runtime-only-password",
+        )
+
+    assert scan.status == "failed"
+    assert scan.completed_at is not None
+    assert (
+        scan.error_message
+        == "Unable to connect to PostgreSQL."
+    )
+
+    db.rollback.assert_called_once()
     assert db.commit.call_count == 2

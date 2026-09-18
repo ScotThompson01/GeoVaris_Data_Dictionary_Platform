@@ -102,3 +102,72 @@ def test_postgresql_discovery_endpoint(
         call_kwargs["password"]
         == "runtime-only-password"
     )
+
+
+@patch(
+    "app.api.routes.discovery.discover_postgresql"
+)
+def test_postgresql_discovery_sanitizes_connection_error(
+    mock_discover_postgresql,
+):
+    data_source_id = uuid.uuid4()
+    secret = "super-secret-database-password"
+
+    mock_discover_postgresql.side_effect = ConnectionError(
+        f"Connection failed using password {secret}"
+    )
+
+    response = client.post(
+        "/api/v1/discovery/postgresql",
+        json={
+            "data_source_id": str(data_source_id),
+            "host": "database.example.internal",
+            "port": 5432,
+            "database": "customer_data",
+            "username": "readonly_user",
+            "password": secret,
+            "ssl_mode": None,
+            "connect_timeout_seconds": 10,
+        },
+    )
+
+    assert response.status_code == 400
+    assert secret not in response.text
+
+    assert (
+        response.json()["detail"]
+        == (
+            "Unable to connect to or discover metadata "
+            "from the PostgreSQL source."
+        )
+    )
+
+
+@patch(
+    "app.api.routes.discovery.discover_postgresql"
+)
+def test_postgresql_discovery_rejects_invalid_port(
+    mock_discover_postgresql,
+):
+    response = client.post(
+        "/api/v1/discovery/postgresql",
+        json={
+            "data_source_id": str(uuid.uuid4()),
+            "host": "database.example.internal",
+            "port": 70000,
+            "database": "customer_data",
+            "username": "readonly_user",
+            "password": "runtime-only-password",
+            "ssl_mode": None,
+            "connect_timeout_seconds": 10,
+        },
+    )
+
+    assert response.status_code == 422
+
+    assert (
+        "runtime-only-password"
+        not in response.text
+    )
+
+    mock_discover_postgresql.assert_not_called()
