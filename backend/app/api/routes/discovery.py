@@ -15,11 +15,15 @@ from app.db.session import get_db
 from app.schemas.discovery import (
     CSVDiscoveryRequest,
     PostgreSQLDiscoveryRequest,
+    SQLServerDiscoveryRequest,
 )
 from app.schemas.scan import ScanRead
 from app.services.csv_discovery import discover_csv
 from app.services.postgresql_discovery import (
     discover_postgresql,
+)
+from app.services.sqlserver_discovery import (
+    discover_sqlserver,
 )
 
 router = APIRouter()
@@ -139,4 +143,66 @@ def run_postgresql_discovery(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="PostgreSQL discovery failed.",
         )
-        
+
+
+@router.post(
+    "/sqlserver",
+    response_model=ScanRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def run_sqlserver_discovery(
+    payload: SQLServerDiscoveryRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Run read-only SQL Server metadata discovery.
+
+    Connection credentials are runtime-only and are not persisted
+    by the discovery service.
+    """
+
+    connection_config = DatabaseConnectionConfig(
+        host=payload.host,
+        port=payload.port,
+        database=payload.database,
+        username=payload.username,
+        ssl_mode=payload.ssl_mode,
+        connect_timeout_seconds=(
+            payload.connect_timeout_seconds
+        ),
+    )
+
+    password = (
+        payload.password.get_secret_value()
+        if payload.password is not None
+        else None
+    )
+
+    try:
+        return discover_sqlserver(
+            db=db,
+            data_source_id=payload.data_source_id,
+            connection_config=connection_config,
+            password=password,
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    except ConnectionError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "Unable to connect to or discover metadata "
+                "from the SQL Server source."
+            ),
+        )
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="SQL Server discovery failed.",
+        )
