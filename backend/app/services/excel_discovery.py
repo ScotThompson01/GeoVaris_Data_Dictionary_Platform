@@ -10,6 +10,9 @@ from app.models.scan import Scan
 from app.services.discovery_persistence import (
     persist_discovered_object,
 )
+from app.services.excel_profiling import (
+    profile_excel_worksheet,
+)
 
 
 def discover_excel(
@@ -18,11 +21,12 @@ def discover_excel(
     file_path: Path,
 ) -> Scan:
     """
-    Discover technical metadata from an Excel workbook.
+    Discover and profile technical metadata from an Excel workbook.
 
     The source workbook is opened read-only.
 
-    Each worksheet is persisted as a separate source object.
+    Each worksheet is persisted as a separate source object and
+    receives aggregate field-level profiling results.
 
     Raw workbook rows are not persisted by this service.
     Human-maintained governance metadata is not modified.
@@ -82,14 +86,21 @@ def discover_excel(
         )
 
         # -----------------------------------------------------
-        # 4. Persist each worksheet independently
+        # 4. Persist and profile each worksheet independently
         # -----------------------------------------------------
 
         for discovered in discovered_objects:
-            persist_discovered_object(
+            source_object = persist_discovered_object(
                 db=db,
                 data_source=data_source,
                 discovered=discovered,
+            )
+
+            profile_excel_worksheet(
+                db=db,
+                scan_id=scan.id,
+                source_object_id=source_object.id,
+                file_path=file_path,
             )
 
         # -----------------------------------------------------
@@ -118,7 +129,7 @@ def discover_excel(
         return scan
 
     except Exception as exc:
-        # Roll back any uncommitted worksheet or field changes.
+        # Roll back any currently uncommitted changes.
         db.rollback()
 
         # The scan was committed before discovery began,
