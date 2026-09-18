@@ -14,11 +14,13 @@ from app.connectors.database.base import (
 from app.db.session import get_db
 from app.schemas.discovery import (
     CSVDiscoveryRequest,
+    ExcelDiscoveryRequest,
     PostgreSQLDiscoveryRequest,
     SQLServerDiscoveryRequest,
 )
 from app.schemas.scan import ScanRead
 from app.services.csv_discovery import discover_csv
+from app.services.excel_discovery import discover_excel
 from app.services.postgresql_discovery import (
     discover_postgresql,
 )
@@ -79,6 +81,64 @@ def run_csv_discovery(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="CSV discovery failed.",
+        )
+
+
+@router.post(
+    "/excel",
+    response_model=ScanRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def run_excel_discovery(
+    payload: ExcelDiscoveryRequest,
+    db: Session = Depends(get_db),
+):
+    """
+    Run read-only Excel workbook metadata discovery.
+
+    The requested file must be an .xlsx file located in the
+    configured sample-data directory.
+    """
+
+    requested_name = Path(payload.file_name)
+
+    if requested_name.name != payload.file_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="file_name must contain only a file name.",
+        )
+
+    if requested_name.suffix.lower() != ".xlsx":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Excel discovery requires a .xlsx file.",
+        )
+
+    file_path = SAMPLE_DATA_ROOT / requested_name.name
+
+    try:
+        return discover_excel(
+            db=db,
+            data_source_id=payload.data_source_id,
+            file_path=file_path,
+        )
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Excel file not found.",
+        )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Excel discovery failed.",
         )
 
 
