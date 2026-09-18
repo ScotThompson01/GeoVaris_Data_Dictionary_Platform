@@ -176,3 +176,94 @@ def test_discover_sqlserver_marks_scan_failed_on_connection_error(
 
     db.rollback.assert_called_once()
     assert db.commit.call_count == 2
+
+def test_discover_sqlserver_rejects_missing_data_source():
+    data_source_id = uuid.uuid4()
+
+    db = MagicMock()
+    db.get.return_value = None
+
+    config = DatabaseConnectionConfig(
+        host="sqlserver.internal",
+        port=1433,
+        database="customer_database",
+        username="readonly_user",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Data source not found",
+    ):
+        discover_sqlserver(
+            db=db,
+            data_source_id=data_source_id,
+            connection_config=config,
+            password="runtime-only-password",
+        )
+
+    db.add.assert_not_called()
+    db.commit.assert_not_called()
+
+
+def test_discover_sqlserver_rejects_wrong_source_type():
+    data_source = DataSource(
+        id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        name="Wrong Source",
+        source_type="postgresql",
+        connection_mode="database",
+        is_active=True,
+    )
+
+    db = MagicMock()
+    db.get.return_value = data_source
+
+    config = DatabaseConnectionConfig(
+        host="sqlserver.internal",
+        port=1433,
+        database="customer_database",
+        username="readonly_user",
+    )
+
+    with pytest.raises(ValueError):
+        discover_sqlserver(
+            db=db,
+            data_source_id=data_source.id,
+            connection_config=config,
+            password="runtime-only-password",
+        )
+
+    db.add.assert_not_called()
+    db.commit.assert_not_called()
+
+
+def test_discover_sqlserver_rejects_inactive_data_source():
+    data_source = DataSource(
+        id=uuid.uuid4(),
+        project_id=uuid.uuid4(),
+        name="Inactive SQL Server",
+        source_type="sqlserver",
+        connection_mode="database",
+        is_active=False,
+    )
+
+    db = MagicMock()
+    db.get.return_value = data_source
+
+    config = DatabaseConnectionConfig(
+        host="sqlserver.internal",
+        port=1433,
+        database="customer_database",
+        username="readonly_user",
+    )
+
+    with pytest.raises(ValueError):
+        discover_sqlserver(
+            db=db,
+            data_source_id=data_source.id,
+            connection_config=config,
+            password="runtime-only-password",
+        )
+
+    db.add.assert_not_called()
+    db.commit.assert_not_called()
