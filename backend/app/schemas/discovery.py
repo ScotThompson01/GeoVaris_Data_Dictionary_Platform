@@ -12,6 +12,14 @@ class CSVDiscoveryRequest(BaseModel):
     )
 
 
+class ExcelDiscoveryRequest(BaseModel):
+    data_source_id: uuid.UUID
+
+    file_name: str = Field(
+        min_length=1,
+        max_length=255,
+    )
+
 class PostgreSQLDiscoveryRequest(BaseModel):
     """
     Runtime PostgreSQL connection details for metadata discovery.
