@@ -1,5 +1,5 @@
 import type { Client, DictionaryField, FieldGovernanceMetadata,
-  FieldGovernanceUpdate, Project } from "./types";
+  FieldGovernanceUpdate, ProfilingResult, Project } from "./types";
 
 const API_URL =
   typeof window === "undefined"
@@ -67,6 +67,23 @@ export async function saveFieldGovernance(
           "Content-Type": "application/json",
         },
         body: JSON.stringify(payload),
+      },
+    ),
+  );
+}
+
+export async function getFieldProfilingResults(
+  dataFieldId: string,
+): Promise<ProfilingResult[]> {
+  const params = new URLSearchParams({
+    data_field_id: dataFieldId,
+  });
+
+  return parse<ProfilingResult[]>(
+    await fetch(
+      `${API_URL}/api/v1/profiling-results?${params.toString()}`,
+      {
+        cache: "no-store",
       },
     ),
   );

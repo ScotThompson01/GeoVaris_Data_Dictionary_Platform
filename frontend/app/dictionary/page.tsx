@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 import FieldGovernancePanel from "../../components/FieldGovernancePanel";
 import { getDictionaryFields } from "../../lib/api";
 import type { DictionaryField } from "../../lib/types";
+import FieldProfilingPanel from "../../components/FieldProfilingPanel";
 
 
 export default function DictionaryPage() {
@@ -221,12 +222,17 @@ export default function DictionaryPage() {
         </section>
 
         {selectedField && (
-          <FieldGovernancePanel
-            field={selectedField}
-            onClose={() =>
-              setSelectedField(null)
-            }
-          />
+          <div>
+            <FieldProfilingPanel
+              key={selectedField.field_id}
+              field={selectedField}
+            />
+
+            <FieldGovernancePanel
+              field={selectedField}
+              onClose={() => setSelectedField(null)}
+            />
+          </div>
         )}
       </div>
     </>

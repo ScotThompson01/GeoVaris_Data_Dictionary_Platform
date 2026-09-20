@@ -57,3 +57,24 @@ export type FieldGovernanceUpdate = {
   approval_status?: string;
   notes?: string | null;
 };
+
+export type ProfilingResult = {
+  id: string;
+  scan_id: string;
+  data_field_id: string;
+
+  row_count: number;
+  null_count: number;
+  null_percentage: string;
+
+  distinct_count: number;
+  distinct_percentage: string;
+
+  minimum_value: string | null;
+  maximum_value: string | null;
+
+  minimum_length: number | null;
+  maximum_length: number | null;
+
+  created_at: string;
+};
