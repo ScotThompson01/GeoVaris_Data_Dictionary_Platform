@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -16,6 +18,7 @@ router = APIRouter()
     response_model=list[DictionaryFieldRead],
 )
 def list_dictionary_fields(
+    project_id: uuid.UUID = Query(...),
     search: str | None = Query(default=None),
     source_type: str | None = Query(default=None),
     normalized_data_type: str | None = Query(default=None),
@@ -45,6 +48,9 @@ def list_dictionary_fields(
         .join(
             DataSource,
             SourceObject.data_source_id == DataSource.id,
+        )
+        .where(
+            DataSource.project_id == project_id
         )
     )
 
