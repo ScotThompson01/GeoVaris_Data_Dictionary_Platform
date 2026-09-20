@@ -1,50 +1,124 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 
 import FieldGovernancePanel from "../../components/FieldGovernancePanel";
-import { getDictionaryFields } from "../../lib/api";
-import type { DictionaryField } from "../../lib/types";
 import FieldProfilingPanel from "../../components/FieldProfilingPanel";
-
+import { getDictionaryFields, getProjects } from "../../lib/api";
+import type { DictionaryField, Project } from "../../lib/types";
 
 export default function DictionaryPage() {
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState("");
+
   const [fields, setFields] = useState<DictionaryField[]>([]);
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loadingProjects, setLoadingProjects] = useState(true);
+  const [loadingFields, setLoadingFields] = useState(false);
   const [message, setMessage] = useState("");
+  const [projectMessage, setProjectMessage] = useState("");
 
   const [selectedField, setSelectedField] =
     useState<DictionaryField | null>(null);
 
-  async function loadDictionary(searchValue?: string) {
-    setLoading(true);
+  // Prevent an older request from replacing results for a newer selection.
+  const requestId = useRef(0);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadProjects() {
+      try {
+        const results = await getProjects();
+
+        if (active) {
+          setProjects(results);
+        }
+      } catch {
+        if (active) {
+          setProjects([]);
+          setProjectMessage("Unable to load projects.");
+        }
+      } finally {
+        if (active) {
+          setLoadingProjects(false);
+        }
+      }
+    }
+
+    void loadProjects();
+
+    return () => {
+      active = false;
+      requestId.current += 1;
+    };
+  }, []);
+
+  async function loadDictionary(
+    projectId: string,
+    searchValue = "",
+  ) {
+    const currentRequestId = ++requestId.current;
+
+    setLoadingFields(true);
     setMessage("");
+    setFields([]);
+    setSelectedField(null);
 
     try {
-      const results = await getDictionaryFields(searchValue);
-      setFields(results);
+      const results = await getDictionaryFields(
+        projectId,
+        searchValue,
+      );
+
+      if (currentRequestId === requestId.current) {
+        setFields(results);
+      }
     } catch {
-      setFields([]);
-      setMessage("Unable to load the Data Dictionary.");
+      if (currentRequestId === requestId.current) {
+        setFields([]);
+        setMessage("Unable to load the Data Dictionary.");
+      }
     } finally {
-      setLoading(false);
+      if (currentRequestId === requestId.current) {
+        setLoadingFields(false);
+      }
     }
   }
 
-  useEffect(() => {
-    loadDictionary();
-  }, []);
+  function changeProject(projectId: string) {
+    // Invalidate any dictionary request from the previous project.
+    requestId.current += 1;
 
-  function submitSearch(event: FormEvent) {
+    setSelectedProjectId(projectId);
+    setSearch("");
+    setFields([]);
+    setSelectedField(null);
+    setMessage("");
+    setLoadingFields(false);
+
+    if (projectId) {
+      void loadDictionary(projectId);
+    }
+  }
+
+  function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    loadDictionary(search);
+
+    if (selectedProjectId) {
+      void loadDictionary(selectedProjectId, search);
+    }
   }
 
   function clearSearch() {
     setSearch("");
-    loadDictionary();
+
+    if (selectedProjectId) {
+      void loadDictionary(selectedProjectId);
+    }
   }
+
+  const hasSelectedProject = selectedProjectId !== "";
 
   return (
     <>
@@ -60,6 +134,37 @@ export default function DictionaryPage() {
       </header>
 
       <section className="card dictionary-toolbar">
+        <div>
+          <label htmlFor="dictionary-project">
+            Project
+          </label>
+
+          <select
+            id="dictionary-project"
+            value={selectedProjectId}
+            onChange={(event) =>
+              changeProject(event.target.value)
+            }
+            disabled={loadingProjects}
+          >
+            <option value="">
+              {loadingProjects
+                ? "Loading projects..."
+                : "Select a project"}
+            </option>
+
+            {projects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+
+          {projectMessage && (
+            <p className="notice">{projectMessage}</p>
+          )}
+        </div>
+
         <form
           className="dictionary-search"
           onSubmit={submitSearch}
@@ -67,13 +172,18 @@ export default function DictionaryPage() {
           <input
             type="search"
             placeholder="Search field names..."
+            aria-label="Search field names"
             value={search}
             onChange={(event) =>
               setSearch(event.target.value)
             }
+            disabled={!hasSelectedProject || loadingFields}
           />
 
-          <button type="submit">
+          <button
+            type="submit"
+            disabled={!hasSelectedProject || loadingFields}
+          >
             Search
           </button>
 
@@ -81,13 +191,14 @@ export default function DictionaryPage() {
             type="button"
             className="secondary-button"
             onClick={clearSearch}
+            disabled={!hasSelectedProject || loadingFields}
           >
             Clear
           </button>
         </form>
 
         <div className="dictionary-count">
-          {loading
+          {loadingFields
             ? "Loading..."
             : `${fields.length} field${
                 fields.length === 1 ? "" : "s"
@@ -97,21 +208,31 @@ export default function DictionaryPage() {
 
       <div className="dictionary-layout">
         <section className="card dictionary-table-card">
+          {!hasSelectedProject && !loadingProjects && (
+            <div className="empty-state">
+              <h3>Select a project</h3>
+              <p>
+                Choose a project to view its discovered fields.
+              </p>
+            </div>
+          )}
+
           {message && (
             <p className="notice">
               {message}
             </p>
           )}
 
-          {!loading &&
+          {hasSelectedProject &&
+            !loadingFields &&
             !message &&
             fields.length === 0 && (
               <div className="empty-state">
                 <h3>No dictionary fields found</h3>
 
                 <p>
-                  Discover a supported data source or
-                  adjust your search.
+                  Discover a supported data source for this
+                  project or adjust your search.
                 </p>
               </div>
             )}
@@ -134,16 +255,13 @@ export default function DictionaryPage() {
                 <tbody>
                   {fields.map((field) => {
                     const selected =
-                      selectedField?.field_id
-                      === field.field_id;
+                      selectedField?.field_id === field.field_id;
 
                     return (
                       <tr
                         key={field.field_id}
                         className={
-                          selected
-                            ? "selected-row"
-                            : undefined
+                          selected ? "selected-row" : undefined
                         }
                       >
                         <td>
@@ -152,16 +270,15 @@ export default function DictionaryPage() {
                           </div>
 
                           <div className="field-subtext">
-                            Position{" "}
-                            {field.ordinal_position}
+                            Position {field.ordinal_position}
                           </div>
                         </td>
 
                         <td>
                           <span className="type-badge">
-                            {field.normalized_data_type
-                              ?? field.native_data_type
-                              ?? "Unknown"}
+                            {field.normalized_data_type ??
+                              field.native_data_type ??
+                              "Unknown"}
                           </span>
                         </td>
 
@@ -222,9 +339,8 @@ export default function DictionaryPage() {
         </section>
 
         {selectedField && (
-          <div>
+          <div key={selectedField.field_id}>
             <FieldProfilingPanel
-              key={selectedField.field_id}
               field={selectedField}
             />
 
