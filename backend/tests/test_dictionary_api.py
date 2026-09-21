@@ -1,13 +1,50 @@
+"""HTTP tests for dictionary request validation and project filtering."""
+
 import uuid
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
 
+from app.api.dependencies.auth import (
+    AuthenticatedSession,
+    require_authenticated_session,
+)
 from app.db.session import get_db
 from app.main import app
+from app.models.user import User
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def authenticated_dictionary_requests():
+    """Authenticate requests in this test module without creating a real user."""
+    test_user = User(
+        id=uuid.uuid4(),
+        username="dictionary_test_user",
+        password_hash="test-only-placeholder",
+        is_active=True,
+    )
+
+    def override_authentication():
+        return AuthenticatedSession(
+            user=test_user,
+            token="dictionary-test-only-token",
+        )
+
+    app.dependency_overrides[require_authenticated_session] = (
+        override_authentication
+    )
+
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(
+            require_authenticated_session,
+            None,
+        )
 
 
 def test_dictionary_requires_project_id():
@@ -52,4 +89,4 @@ def test_dictionary_filters_by_project():
         assert "data_sources.project_id" in sql
         assert project_id in statement.compile().params.values()
     finally:
-        app.dependency_overrides.clear()
+        app.dependency_overrides.pop(get_db, None)

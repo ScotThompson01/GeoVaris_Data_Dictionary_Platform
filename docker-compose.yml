@@ -1,3 +1,4 @@
+
 services:
   db:
     image: postgres:16-alpine
@@ -9,7 +10,9 @@ services:
     volumes:
       - geovaris_postgres:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}
       interval: 5s
       timeout: 5s
       retries: 10
@@ -20,8 +23,6 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    ports:
-      - "8000:8000"
     volumes:
       - ./sample_data:/data/samples:ro
     depends_on:
@@ -36,8 +37,9 @@ services:
       context: ./frontend
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       INTERNAL_API_URL: http://api:8000
+      APP_ORIGIN: http://localhost:3000
+      NEXT_TELEMETRY_DISABLED: "1"
     ports:
       - "3000:3000"
     depends_on:

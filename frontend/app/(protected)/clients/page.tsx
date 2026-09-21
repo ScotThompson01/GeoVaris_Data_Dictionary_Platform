@@ -1,4 +1,4 @@
 "use client";
-import {useEffect,useState} from "react";import ClientForm from "../../components/ClientForm";import {getClients} from "../../lib/api";import type {Client} from "../../lib/types";
+import {useEffect,useState} from "react";import ClientForm from "../../../components/ClientForm";import {getClients} from "../../../lib/api";import type {Client} from "../../../lib/types";
 export default function Page(){const [items,setItems]=useState<Client[]>([]);async function refresh(){setItems(await getClients())}useEffect(()=>{refresh().catch(()=>setItems([]))},[]);
 return <><header><div><h1>Clients</h1><p>Create and manage local client workspaces.</p></div></header><div className="two"><section className="card"><h3>Client List</h3><table><thead><tr><th>Name</th><th>Description</th></tr></thead><tbody>{items.map(x=><tr key={x.id}><td>{x.name}</td><td>{x.description||"—"}</td></tr>)}</tbody></table></section><section className="card"><h3>Create Client</h3><ClientForm onCreated={()=>refresh()}/></section></div></>;}

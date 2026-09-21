@@ -1,3 +1,4 @@
+
 import type {
   Client,
   DictionaryField,
@@ -6,11 +7,6 @@ import type {
   ProfilingResult,
   Project,
 } from "./types";
-
-const API_URL =
-  typeof window === "undefined"
-    ? process.env.INTERNAL_API_URL ?? "http://api:8000"
-    : process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 async function parse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -25,7 +21,8 @@ async function parse<T>(response: Response): Promise<T> {
 
 export async function getClients(): Promise<Client[]> {
   return parse<Client[]>(
-    await fetch(`${API_URL}/api/v1/clients`, {
+    await fetch("/api/data/clients", {
+      credentials: "same-origin",
       cache: "no-store",
     }),
   );
@@ -33,7 +30,8 @@ export async function getClients(): Promise<Client[]> {
 
 export async function getProjects(): Promise<Project[]> {
   return parse<Project[]>(
-    await fetch(`${API_URL}/api/v1/projects`, {
+    await fetch("/api/data/projects", {
+      credentials: "same-origin",
       cache: "no-store",
     }),
   );
@@ -46,8 +44,9 @@ export async function createClient(
   },
 ): Promise<Client> {
   return parse<Client>(
-    await fetch(`${API_URL}/api/v1/clients`, {
+    await fetch("/api/data/clients", {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
       },
@@ -65,8 +64,9 @@ export async function createProject(
   },
 ): Promise<Project> {
   return parse<Project>(
-    await fetch(`${API_URL}/api/v1/projects`, {
+    await fetch("/api/data/projects", {
       method: "POST",
+      credentials: "same-origin",
       headers: {
         "Content-Type": "application/json",
       },
@@ -91,12 +91,10 @@ export async function getDictionaryFields(
   }
 
   return parse<DictionaryField[]>(
-    await fetch(
-      `${API_URL}/api/v1/dictionary?${params.toString()}`,
-      {
-        cache: "no-store",
-      },
-    ),
+    await fetch(`/api/data/dictionary?${params.toString()}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+    }),
   );
 }
 
@@ -105,8 +103,9 @@ export async function getFieldGovernance(
 ): Promise<FieldGovernanceMetadata> {
   return parse<FieldGovernanceMetadata>(
     await fetch(
-      `${API_URL}/api/v1/field-governance/${dataFieldId}`,
+      `/api/data/field-governance/${encodeURIComponent(dataFieldId)}`,
       {
+        credentials: "same-origin",
         cache: "no-store",
       },
     ),
@@ -119,9 +118,10 @@ export async function saveFieldGovernance(
 ): Promise<FieldGovernanceMetadata> {
   return parse<FieldGovernanceMetadata>(
     await fetch(
-      `${API_URL}/api/v1/field-governance/${dataFieldId}`,
+      `/api/data/field-governance/${encodeURIComponent(dataFieldId)}`,
       {
         method: "PUT",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json",
         },
@@ -140,8 +140,9 @@ export async function getFieldProfilingResults(
 
   return parse<ProfilingResult[]>(
     await fetch(
-      `${API_URL}/api/v1/profiling-results?${params.toString()}`,
+      `/api/data/profiling-results?${params.toString()}`,
       {
+        credentials: "same-origin",
         cache: "no-store",
       },
     ),

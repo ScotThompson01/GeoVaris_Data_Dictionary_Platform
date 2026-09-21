@@ -1,0 +1,27 @@
+﻿services:
+  auth_test_api:
+    build:
+      context: ./backend
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql+psycopg://geovaris_auth_test:auth_test_only_not_for_deployment@auth_test_db:5432/geovaris_auth_test
+      FRONTEND_ORIGIN: http://localhost:3001
+    depends_on:
+      auth_test_db:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+  auth_test_frontend:
+    build:
+      context: ./frontend
+    restart: "no"
+    environment:
+      INTERNAL_API_URL: http://auth_test_api:8000
+      APP_ORIGIN: http://localhost:3001
+      NEXT_TELEMETRY_DISABLED: "1"
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      - auth_test_api

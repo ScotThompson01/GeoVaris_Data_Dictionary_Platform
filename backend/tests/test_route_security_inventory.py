@@ -10,9 +10,12 @@ from app.main import app
 
 PUBLIC_PATHS = {
     "/api/v1/health",
+    "/api/v1/auth/sign-in",
 }
 
 PROTECTED_PATHS = {
+    "/api/v1/auth/logout",
+    "/api/v1/auth/me",
     "/api/v1/clients",
     "/api/v1/clients/{client_id}",
     "/api/v1/projects",
@@ -55,5 +58,8 @@ def test_public_and_protected_routes_do_not_overlap():
     assert PUBLIC_PATHS.isdisjoint(PROTECTED_PATHS)
 
 
-def test_health_is_the_only_public_application_route():
-    assert PUBLIC_PATHS == {"/api/v1/health"}
+def test_only_approved_routes_are_public():
+    assert PUBLIC_PATHS == {
+        "/api/v1/health",
+        "/api/v1/auth/sign-in",
+    }
