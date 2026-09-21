@@ -2,10 +2,10 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-import FieldGovernancePanel from "../../components/FieldGovernancePanel";
-import FieldProfilingPanel from "../../components/FieldProfilingPanel";
-import { getDictionaryFields, getProjects } from "../../lib/api";
-import type { DictionaryField, Project } from "../../lib/types";
+import FieldGovernancePanel from "../../../components/FieldGovernancePanel";
+import FieldProfilingPanel from "../../../components/FieldProfilingPanel";
+import { getDictionaryFields, getProjects } from "../../../lib/api";
+import type { DictionaryField, Project } from "../../../lib/types";
 
 export default function DictionaryPage() {
   const [projects, setProjects] = useState<Project[]>([]);

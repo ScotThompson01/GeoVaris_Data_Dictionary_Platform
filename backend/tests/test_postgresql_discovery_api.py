@@ -6,10 +6,44 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.models.scan import Scan
+import pytest
 
+from app.api.dependencies.auth import (
+    AuthenticatedSession,
+    require_authenticated_session,
+)
+from app.main import app
+from app.models.user import User
 
 client = TestClient(app)
 
+@pytest.fixture(autouse=True)
+def authenticated_discovery_requests():
+    """Authenticate this module's requests without creating a real user."""
+    test_user = User(
+        id=uuid.uuid4(),
+        username="discovery_test_user",
+        password_hash="test-only-placeholder",
+        is_active=True,
+    )
+
+    def override_authentication():
+        return AuthenticatedSession(
+            user=test_user,
+            token="discovery-test-only-token",
+        )
+
+    app.dependency_overrides[require_authenticated_session] = (
+        override_authentication
+    )
+
+    try:
+        yield
+    finally:
+        app.dependency_overrides.pop(
+            require_authenticated_session,
+            None,
+        )
 
 @patch(
     "app.api.routes.discovery.discover_postgresql"

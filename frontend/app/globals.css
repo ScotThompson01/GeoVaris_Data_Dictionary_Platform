@@ -49,7 +49,7 @@ a {
     border-bottom: 1px solid #ffffff2e
 }
 
-..logo {
+.logo {
     width: 82px;
     height: 82px;
     object-fit: contain;
