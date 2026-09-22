@@ -5,10 +5,16 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.dependencies.auth import (
+    AuthenticatedSession,
+    require_authenticated_session,
+)
 from app.db.session import get_db
 from app.models.data_source import DataSource
 from app.models.project import Project
+from app.models.project_access import ProjectAccess
 from app.schemas.data_source import DataSourceCreate, DataSourceRead
+from app.services.project_authorization import require_project_access
 
 router = APIRouter()
 
@@ -20,8 +26,16 @@ router = APIRouter()
 def list_data_sources(
     project_id: uuid.UUID | None = Query(default=None),
     db: Session = Depends(get_db),
+    session: AuthenticatedSession = Depends(require_authenticated_session),
 ):
-    statement = select(DataSource)
+    statement = (
+        select(DataSource)
+        .join(
+            ProjectAccess,
+            ProjectAccess.project_id == DataSource.project_id,
+        )
+        .where(ProjectAccess.user_id == session.user.id)
+    )
 
     if project_id is not None:
         statement = statement.where(
@@ -43,6 +57,7 @@ def list_data_sources(
 def create_data_source(
     payload: DataSourceCreate,
     db: Session = Depends(get_db),
+    session: AuthenticatedSession = Depends(require_authenticated_session),
 ):
     project = db.get(
         Project,
@@ -54,6 +69,12 @@ def create_data_source(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found.",
         )
+
+    require_project_access(
+        db,
+        user_id=session.user.id,
+        project_id=payload.project_id,
+    )
 
     data_source = DataSource(
         project_id=payload.project_id,
@@ -91,6 +112,7 @@ def create_data_source(
 def get_data_source(
     data_source_id: uuid.UUID,
     db: Session = Depends(get_db),
+    session: AuthenticatedSession = Depends(require_authenticated_session),
 ):
     data_source = db.get(
         DataSource,
@@ -102,5 +124,19 @@ def get_data_source(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Data source not found.",
         )
+
+    try:
+        require_project_access(
+            db,
+            user_id=session.user.id,
+            project_id=data_source.project_id,
+        )
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_404_NOT_FOUND:
+            raise
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Data source not found.",
+        ) from None
 
     return data_source

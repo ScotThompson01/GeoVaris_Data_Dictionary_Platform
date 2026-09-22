@@ -6,6 +6,8 @@
     environment:
       DATABASE_URL: postgresql+psycopg://geovaris_auth_test:auth_test_only_not_for_deployment@auth_test_db:5432/geovaris_auth_test
       FRONTEND_ORIGIN: http://localhost:3001
+    volumes:
+      - ./sample_data:/data/samples:ro
     depends_on:
       auth_test_db:
         condition: service_healthy

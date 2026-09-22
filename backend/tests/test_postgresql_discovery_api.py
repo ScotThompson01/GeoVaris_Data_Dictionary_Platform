@@ -38,7 +38,10 @@ def authenticated_discovery_requests():
     )
 
     try:
-        yield
+        with patch(
+            "app.api.routes.discovery.require_data_source_access"
+        ):
+            yield
     finally:
         app.dependency_overrides.pop(
             require_authenticated_session,
