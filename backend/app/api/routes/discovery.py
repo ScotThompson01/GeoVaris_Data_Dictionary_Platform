@@ -11,6 +11,10 @@ from sqlalchemy.orm import Session
 from app.connectors.database.base import (
     DatabaseConnectionConfig,
 )
+from app.api.dependencies.auth import (
+    AuthenticatedSession,
+    require_authenticated_session,
+)
 from app.db.session import get_db
 from app.schemas.discovery import (
     CSVDiscoveryRequest,
@@ -20,6 +24,7 @@ from app.schemas.discovery import (
 )
 from app.schemas.scan import ScanRead
 from app.services.csv_discovery import discover_csv
+from app.services.data_source_authorization import require_data_source_access
 from app.services.excel_discovery import discover_excel
 from app.services.postgresql_discovery import (
     discover_postgresql,
@@ -41,7 +46,14 @@ SAMPLE_DATA_ROOT = Path("/data/samples")
 def run_csv_discovery(
     payload: CSVDiscoveryRequest,
     db: Session = Depends(get_db),
+    session: AuthenticatedSession = Depends(require_authenticated_session),
 ):
+    require_data_source_access(
+        db,
+        user_id=session.user.id,
+        data_source_id=payload.data_source_id,
+    )
+
     requested_name = Path(payload.file_name)
 
     if requested_name.name != payload.file_name:
@@ -92,6 +104,7 @@ def run_csv_discovery(
 def run_excel_discovery(
     payload: ExcelDiscoveryRequest,
     db: Session = Depends(get_db),
+    session: AuthenticatedSession = Depends(require_authenticated_session),
 ):
     """
     Run read-only Excel workbook metadata discovery.
@@ -99,6 +112,12 @@ def run_excel_discovery(
     The requested file must be an .xlsx file located in the
     configured sample-data directory.
     """
+
+    require_data_source_access(
+        db,
+        user_id=session.user.id,
+        data_source_id=payload.data_source_id,
+    )
 
     requested_name = Path(payload.file_name)
 
@@ -150,6 +169,7 @@ def run_excel_discovery(
 def run_postgresql_discovery(
     payload: PostgreSQLDiscoveryRequest,
     db: Session = Depends(get_db),
+    session: AuthenticatedSession = Depends(require_authenticated_session),
 ):
     """
     Run read-only PostgreSQL metadata discovery.
@@ -157,6 +177,12 @@ def run_postgresql_discovery(
     Connection credentials are runtime-only and are not persisted
     by the discovery service.
     """
+
+    require_data_source_access(
+        db,
+        user_id=session.user.id,
+        data_source_id=payload.data_source_id,
+    )
 
     connection_config = DatabaseConnectionConfig(
         host=payload.host,
@@ -213,6 +239,7 @@ def run_postgresql_discovery(
 def run_sqlserver_discovery(
     payload: SQLServerDiscoveryRequest,
     db: Session = Depends(get_db),
+    session: AuthenticatedSession = Depends(require_authenticated_session),
 ):
     """
     Run read-only SQL Server metadata discovery.
@@ -220,6 +247,12 @@ def run_sqlserver_discovery(
     Connection credentials are runtime-only and are not persisted
     by the discovery service.
     """
+
+    require_data_source_access(
+        db,
+        user_id=session.user.id,
+        data_source_id=payload.data_source_id,
+    )
 
     connection_config = DatabaseConnectionConfig(
         host=payload.host,

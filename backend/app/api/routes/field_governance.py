@@ -4,8 +4,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.dependencies.auth import (
+    AuthenticatedSession,
+    require_authenticated_session,
+)
 from app.db.session import get_db
 from app.models.data_field import DataField
+from app.models.data_source import DataSource
+from app.models.source_object import SourceObject
+from app.services.project_authorization import require_project_access
 from app.models.field_governance_metadata import FieldGovernanceMetadata
 from app.schemas.field_governance_metadata import (
     FieldGovernanceMetadataUpdate,
@@ -34,6 +41,7 @@ def _get_governance_record(
 def get_field_governance(
     data_field_id: uuid.UUID,
     db: Session = Depends(get_db),
+    session: AuthenticatedSession = Depends(require_authenticated_session),
 ):
     data_field = db.get(
         DataField,
@@ -45,6 +53,34 @@ def get_field_governance(
             status_code=404,
             detail="Data field not found.",
         )
+
+    source_object = db.get(SourceObject, data_field.source_object_id)
+    if source_object is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Data field not found.",
+        )
+
+    data_source = db.get(DataSource, source_object.data_source_id)
+    if data_source is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Data field not found.",
+        )
+
+    try:
+        require_project_access(
+            db,
+            user_id=session.user.id,
+            project_id=data_source.project_id,
+        )
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        raise HTTPException(
+            status_code=404,
+            detail="Data field not found.",
+        ) from exc
 
     governance = _get_governance_record(
         db,
@@ -69,6 +105,7 @@ def save_field_governance(
     data_field_id: uuid.UUID,
     payload: FieldGovernanceMetadataUpdate,
     db: Session = Depends(get_db),
+    session: AuthenticatedSession = Depends(require_authenticated_session),
 ):
     data_field = db.get(
         DataField,
@@ -80,6 +117,34 @@ def save_field_governance(
             status_code=404,
             detail="Data field not found.",
         )
+
+    source_object = db.get(SourceObject, data_field.source_object_id)
+    if source_object is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Data field not found.",
+        )
+
+    data_source = db.get(DataSource, source_object.data_source_id)
+    if data_source is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Data field not found.",
+        )
+
+    try:
+        require_project_access(
+            db,
+            user_id=session.user.id,
+            project_id=data_source.project_id,
+        )
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        raise HTTPException(
+            status_code=404,
+            detail="Data field not found.",
+        ) from exc
 
     governance = _get_governance_record(
         db,

@@ -4,11 +4,16 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.dependencies.auth import (
+    AuthenticatedSession,
+    require_authenticated_session,
+)
 from app.db.session import get_db
 from app.models.data_field import DataField
 from app.models.data_source import DataSource
 from app.models.source_object import SourceObject
 from app.schemas.dictionary import DictionaryFieldRead
+from app.services.project_authorization import require_project_access
 
 router = APIRouter()
 
@@ -23,7 +28,14 @@ def list_dictionary_fields(
     source_type: str | None = Query(default=None),
     normalized_data_type: str | None = Query(default=None),
     db: Session = Depends(get_db),
+    session: AuthenticatedSession = Depends(require_authenticated_session),
 ):
+    require_project_access(
+        db,
+        user_id=session.user.id,
+        project_id=project_id,
+    )
+
     statement = (
         select(
             DataField.id.label("field_id"),
