@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.auth import (
@@ -11,6 +11,7 @@ from app.api.dependencies.auth import (
 from app.db.session import get_db
 from app.models.data_field import DataField
 from app.models.data_source import DataSource
+from app.models.field_governance_metadata import FieldGovernanceMetadata
 from app.models.source_object import SourceObject
 from app.schemas.dictionary import DictionaryFieldRead
 from app.services.project_authorization import require_project_access
@@ -26,6 +27,10 @@ def list_dictionary_fields(
     project_id: uuid.UUID = Query(...),
     search: str | None = Query(default=None),
     source_type: str | None = Query(default=None),
+    data_source_id: uuid.UUID | None = Query(default=None),
+    department: str | None = Query(default=None),
+    data_owner: str | None = Query(default=None),
+    is_cde: bool | None = Query(default=None),
     normalized_data_type: str | None = Query(default=None),
     db: Session = Depends(get_db),
     session: AuthenticatedSession = Depends(require_authenticated_session),
@@ -52,6 +57,9 @@ def list_dictionary_fields(
             DataSource.id.label("data_source_id"),
             DataSource.name.label("data_source_name"),
             DataSource.source_type,
+            FieldGovernanceMetadata.department,
+            FieldGovernanceMetadata.data_owner,
+            func.coalesce(FieldGovernanceMetadata.is_cde, False).label("is_cde"),
         )
         .join(
             SourceObject,
@@ -60,6 +68,10 @@ def list_dictionary_fields(
         .join(
             DataSource,
             SourceObject.data_source_id == DataSource.id,
+        )
+        .outerjoin(
+            FieldGovernanceMetadata,
+            FieldGovernanceMetadata.data_field_id == DataField.id,
         )
         .where(
             DataSource.project_id == project_id
@@ -78,6 +90,25 @@ def list_dictionary_fields(
             DataSource.source_type == source_type
         )
 
+    if data_source_id is not None:
+        statement = statement.where(
+            DataSource.id == data_source_id
+        )
+
+    if department:
+        statement = statement.where(
+            FieldGovernanceMetadata.department == department
+        )
+
+    if data_owner:
+        statement = statement.where(
+            FieldGovernanceMetadata.data_owner == data_owner
+        )
+
+    if is_cde is not None:
+        statement = statement.where(
+            func.coalesce(FieldGovernanceMetadata.is_cde, False) == is_cde
+        )
     if normalized_data_type:
         statement = statement.where(
             DataField.normalized_data_type

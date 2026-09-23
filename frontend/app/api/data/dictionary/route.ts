@@ -46,6 +46,36 @@ export async function GET(request: NextRequest) {
     params.set("search", search);
   }
 
+  const dataSourceId = request.nextUrl.searchParams
+    .get("data_source_id")
+    ?.trim();
+
+  if (dataSourceId) {
+    params.set("data_source_id", dataSourceId);
+  }
+
+  const department = request.nextUrl.searchParams
+    .get("department")
+    ?.trim();
+
+  if (department) {
+    params.set("department", department);
+  }
+
+  const dataOwner = request.nextUrl.searchParams
+    .get("data_owner")
+    ?.trim();
+
+  if (dataOwner) {
+    params.set("data_owner", dataOwner);
+  }
+
+  const isCde = request.nextUrl.searchParams.get("is_cde");
+
+  if (isCde === "true" || isCde === "false") {
+    params.set("is_cde", isCde);
+  }
+
   let backendResponse: Response;
 
   try {

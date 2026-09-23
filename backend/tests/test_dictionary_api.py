@@ -90,3 +90,77 @@ def test_dictionary_filters_by_project():
         assert project_id in statement.compile().params.values()
     finally:
         app.dependency_overrides.pop(get_db, None)
+
+def test_dictionary_filters_non_cde_fields():
+    project_id = uuid.uuid4()
+    db = MagicMock()
+    db.execute.return_value.mappings.return_value.all.return_value = []
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        response = client.get(
+            "/api/v1/dictionary",
+            params={
+                "project_id": str(project_id),
+                "is_cde": "false",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+        statement = db.execute.call_args.args[0]
+        compiled = statement.compile()
+        sql = str(compiled)
+
+        assert "coalesce" in sql.lower()
+        assert "field_governance_metadata.is_cde" in sql
+        assert False in compiled.params.values()
+    finally:
+        app.dependency_overrides.pop(get_db, None)
+
+
+def test_dictionary_combines_source_department_and_owner_filters():
+    project_id = uuid.uuid4()
+    source_id = uuid.uuid4()
+    db = MagicMock()
+    db.execute.return_value.mappings.return_value.all.return_value = []
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        response = client.get(
+            "/api/v1/dictionary",
+            params={
+                "project_id": str(project_id),
+                "data_source_id": str(source_id),
+                "department": "Operations",
+                "data_owner": "Test Owner",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+        statement = db.execute.call_args.args[0]
+        compiled = statement.compile()
+        sql = str(compiled)
+        values = compiled.params.values()
+
+        assert "data_sources.project_id" in sql
+        assert "data_sources.id" in sql
+        assert "field_governance_metadata.department" in sql
+        assert "field_governance_metadata.data_owner" in sql
+        assert project_id in values
+        assert source_id in values
+        assert "Operations" in values
+        assert "Test Owner" in values
+    finally:
+        app.dependency_overrides.pop(get_db, None)

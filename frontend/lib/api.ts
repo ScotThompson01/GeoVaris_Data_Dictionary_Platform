@@ -78,9 +78,16 @@ export async function createProject(
   );
 }
 
+export type DictionaryFilters = {
+  dataSourceId?: string;
+  department?: string;
+  dataOwner?: string;
+  isCde?: boolean;
+};
 export async function getDictionaryFields(
   projectId: string,
   search?: string,
+  filters?: DictionaryFilters,
 ): Promise<DictionaryField[]> {
   const params = new URLSearchParams({
     project_id: projectId,
@@ -90,6 +97,18 @@ export async function getDictionaryFields(
     params.set("search", search.trim());
   }
 
+  if (filters?.dataSourceId) {
+    params.set("data_source_id", filters.dataSourceId);
+  }
+  if (filters?.department) {
+    params.set("department", filters.department);
+  }
+  if (filters?.dataOwner) {
+    params.set("data_owner", filters.dataOwner);
+  }
+  if (filters?.isCde !== undefined) {
+    params.set("is_cde", String(filters.isCde));
+  }
   return parse<DictionaryField[]>(
     await fetch(`/api/data/dictionary?${params.toString()}`, {
       credentials: "same-origin",
