@@ -22,3 +22,7 @@ class DictionaryFieldRead(BaseModel):
     data_source_id: uuid.UUID
     data_source_name: str
     source_type: str
+
+    department: str | None = None
+    data_owner: str | None = None
+    is_cde: bool = False

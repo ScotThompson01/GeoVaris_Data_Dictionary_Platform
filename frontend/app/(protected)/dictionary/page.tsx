@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import FieldGovernancePanel from "../../../components/FieldGovernancePanel";
 import FieldProfilingPanel from "../../../components/FieldProfilingPanel";
 import { getDictionaryFields, getProjects } from "../../../lib/api";
+import type { DictionaryFilters } from "../../../lib/api";
 import type { DictionaryField, Project } from "../../../lib/types";
 
 export default function DictionaryPage() {
@@ -12,7 +13,13 @@ export default function DictionaryPage() {
   const [selectedProjectId, setSelectedProjectId] = useState("");
 
   const [fields, setFields] = useState<DictionaryField[]>([]);
+  const [filterOptionsFields, setFilterOptionsFields] = useState<DictionaryField[]>([]);
   const [search, setSearch] = useState("");
+  const [sourceId, setSourceId] = useState("");
+  const [department, setDepartment] = useState("");
+  const [dataOwner, setDataOwner] = useState("");
+  const [cdeStatus, setCdeStatus] = useState("");
+
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [loadingFields, setLoadingFields] = useState(false);
   const [message, setMessage] = useState("");
@@ -57,6 +64,13 @@ export default function DictionaryPage() {
   async function loadDictionary(
     projectId: string,
     searchValue = "",
+    filters: DictionaryFilters = {
+      dataSourceId: sourceId,
+      department,
+      dataOwner,
+      isCde: cdeStatus === "" ? undefined : cdeStatus === "true",
+    },
+    captureFilterOptions = false,
   ) {
     const currentRequestId = ++requestId.current;
 
@@ -69,10 +83,14 @@ export default function DictionaryPage() {
       const results = await getDictionaryFields(
         projectId,
         searchValue,
+        filters,
       );
 
       if (currentRequestId === requestId.current) {
         setFields(results);
+        if (captureFilterOptions) {
+          setFilterOptionsFields(results);
+        }
       }
     } catch {
       if (currentRequestId === requestId.current) {
@@ -92,13 +110,18 @@ export default function DictionaryPage() {
 
     setSelectedProjectId(projectId);
     setSearch("");
+    setSourceId("");
+    setDepartment("");
+    setDataOwner("");
+    setCdeStatus("");
     setFields([]);
+    setFilterOptionsFields([]);
     setSelectedField(null);
     setMessage("");
     setLoadingFields(false);
 
     if (projectId) {
-      void loadDictionary(projectId);
+      void loadDictionary(projectId, "", {}, true);
     }
   }
 
@@ -112,9 +135,13 @@ export default function DictionaryPage() {
 
   function clearSearch() {
     setSearch("");
+    setSourceId("");
+    setDepartment("");
+    setDataOwner("");
+    setCdeStatus("");
 
     if (selectedProjectId) {
-      void loadDictionary(selectedProjectId);
+      void loadDictionary(selectedProjectId, "", {});
     }
   }
 
@@ -180,6 +207,82 @@ export default function DictionaryPage() {
             disabled={!hasSelectedProject || loadingFields}
           />
 
+          <label htmlFor="dictionary-cde">CDE Status</label>
+          <select
+            id="dictionary-cde"
+            value={cdeStatus}
+            onChange={(event) => setCdeStatus(event.target.value)}
+            disabled={!hasSelectedProject || loadingFields}
+          >
+            <option value="">All fields</option>
+            <option value="true">CDE only</option>
+            <option value="false">Non-CDE only</option>
+          </select>
+          <label htmlFor="dictionary-owner">Data Owner</label>
+          <select
+            id="dictionary-owner"
+            value={dataOwner}
+            onChange={(event) => setDataOwner(event.target.value)}
+            disabled={!hasSelectedProject || loadingFields}
+          >
+            <option value="">All data owners</option>
+            {Array.from(
+              new Set(
+                filterOptionsFields
+                  .map((field) => field.data_owner)
+                  .filter((value): value is string => Boolean(value)),
+              ),
+            )
+              .sort()
+              .map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+          </select>
+          <label htmlFor="dictionary-department">Department</label>
+          <select
+            id="dictionary-department"
+            value={department}
+            onChange={(event) => setDepartment(event.target.value)}
+            disabled={!hasSelectedProject || loadingFields}
+          >
+            <option value="">All departments</option>
+            {Array.from(
+              new Set(
+                filterOptionsFields
+                  .map((field) => field.department)
+                  .filter((value): value is string => Boolean(value)),
+              ),
+            )
+              .sort()
+              .map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+          </select>
+          <label htmlFor="dictionary-source">Source</label>
+          <select
+            id="dictionary-source"
+            value={sourceId}
+            onChange={(event) => setSourceId(event.target.value)}
+            disabled={!hasSelectedProject || loadingFields}
+          >
+            <option value="">All sources</option>
+            {Array.from(
+              new Map(
+                filterOptionsFields.map((field) => [
+                  field.data_source_id,
+                  field.data_source_name,
+                ]),
+              ),
+            ).map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
           <button
             type="submit"
             disabled={!hasSelectedProject || loadingFields}
@@ -315,7 +418,7 @@ export default function DictionaryPage() {
                             ? "Primary Key"
                             : field.is_unique
                               ? "Unique"
-                              : "—"}
+                              : "-"}
                         </td>
 
                         <td>

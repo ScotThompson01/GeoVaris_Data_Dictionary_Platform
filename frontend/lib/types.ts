@@ -20,6 +20,10 @@ export type DictionaryField = {
   data_source_id: string;
   data_source_name: string;
   source_type: string;
+
+  department: string | null;
+  data_owner: string | null;
+  is_cde: boolean;
 };
 
 export type FieldGovernanceMetadata = {
