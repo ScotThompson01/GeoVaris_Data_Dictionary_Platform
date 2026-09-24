@@ -82,3 +82,15 @@ export type ProfilingResult = {
 
   created_at: string;
 };
+
+export type DataSource = {
+  id: string;
+  project_id: string;
+  name: string;
+  source_type: "csv" | "excel" | "sql_server" | "postgresql";
+  description: string | null;
+  connection_mode: "file" | "database";
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
