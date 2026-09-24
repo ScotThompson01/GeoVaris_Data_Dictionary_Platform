@@ -16,6 +16,8 @@ PUBLIC_PATHS = {
 PROTECTED_PATHS = {
     "/api/v1/auth/logout",
     "/api/v1/auth/me",
+    "/api/v1/user-management",
+    "/api/v1/user-management/{user_id}/role",
     "/api/v1/clients",
     "/api/v1/clients/{client_id}",
     "/api/v1/projects",

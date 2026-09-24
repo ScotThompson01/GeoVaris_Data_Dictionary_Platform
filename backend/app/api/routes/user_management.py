@@ -1,5 +1,7 @@
 """Installation administrator endpoints for user management."""
 
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -11,6 +13,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.user_management import (
     CreateManagedUserRequest,
+    UpdateManagedUserRoleRequest,
     ManagedUserResponse,
 )
 
@@ -70,3 +73,38 @@ def create_user(
         ) from None
 
     return user_response(user)
+
+
+@router.patch(
+    "/{user_id}/role",
+    response_model=ManagedUserResponse,
+)
+def update_user_role(
+    user_id: UUID,
+    payload: UpdateManagedUserRoleRequest,
+    db: Session = Depends(get_db),
+    administrator: User = Depends(require_installation_admin),
+) -> ManagedUserResponse:
+    """Change another user's installation role."""
+    target = db.get(User, user_id)
+
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+
+    if (
+        target.id == administrator.id
+        and not payload.is_installation_admin
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="You cannot remove your own Administrator role.",
+        )
+
+    target.is_installation_admin = payload.is_installation_admin
+    db.commit()
+    db.refresh(target)
+
+    return user_response(target)

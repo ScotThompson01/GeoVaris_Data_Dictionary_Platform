@@ -12,11 +12,13 @@ type ManagedUser = {
   updated_at: string;
 };
 
-export default function UserList() {
+export default function UserList({ currentUserId }: { currentUserId: string }) {
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
+  const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -66,6 +68,53 @@ export default function UserList() {
     return () => controller.abort();
   }, [refreshKey]);
 
+  async function changeRole(user: ManagedUser, isAdministrator: boolean) {
+    if (user.user_id === currentUserId || updatingUserId !== null) {
+      return;
+    }
+
+    setRoleError(null);
+    setUpdatingUserId(user.user_id);
+
+    try {
+      const response = await fetch(
+        `/api/data/user-management/${user.user_id}/role`,
+        {
+          method: "PATCH",
+          credentials: "same-origin",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            is_installation_admin: isAdministrator,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const result: unknown = await response.json().catch(() => null);
+        const message =
+          typeof result === "object" &&
+          result !== null &&
+          "error" in result &&
+          typeof result.error === "string"
+            ? result.error
+            : "User role could not be updated.";
+
+        throw new Error(message);
+      }
+
+      setRefreshKey((key) => key + 1);
+    } catch (caught) {
+      setRoleError(
+        caught instanceof Error
+          ? caught.message
+          : "User role could not be updated.",
+      );
+    } finally {
+      setUpdatingUserId(null);
+    }
+  }
   if (loading) {
     return <p>Loading user accounts...</p>;
   }
@@ -81,6 +130,7 @@ export default function UserList() {
   return (
     <div>
       <AddUserForm onCreated={() => setRefreshKey((key) => key + 1)} />
+      {roleError && <p role="alert">{roleError}</p>}
       <div style={{ overflowX: "auto" }}>
       <table>
         <thead>
@@ -97,9 +147,17 @@ export default function UserList() {
               <td>{user.username}</td>
               <td>{user.is_active ? "Active" : "Inactive"}</td>
               <td>
-                {user.is_installation_admin
-                  ? "Administrator"
-                  : "Standard user"}
+                <select
+                  aria-label={`Installation role for ${user.username}`}
+                  value={user.is_installation_admin ? "administrator" : "standard"}
+                  disabled={user.user_id === currentUserId || updatingUserId !== null}
+                  onChange={(event) =>
+                    void changeRole(user, event.target.value === "administrator")
+                  }
+                >
+                  <option value="standard">Standard user</option>
+                  <option value="administrator">Administrator</option>
+                </select>
               </td>
               <td>{new Date(user.created_at).toLocaleDateString()}</td>
             </tr>

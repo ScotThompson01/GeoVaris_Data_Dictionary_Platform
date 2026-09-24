@@ -38,3 +38,7 @@ class ManagedUserResponse(BaseModel):
     is_installation_admin: bool
     created_at: datetime
     updated_at: datetime
+
+
+class UpdateManagedUserRoleRequest(BaseModel):
+    is_installation_admin: bool
