@@ -145,9 +145,9 @@ def discover_postgresql(
                 timezone.utc
             )
 
-            # Keep diagnostics bounded. Credentials are never
-            # intentionally included in this message.
-            failed_scan.error_message = str(exc)[:2000]
+            # Save a generic error; driver exceptions may contain
+            # connection details or credentials.
+            failed_scan.error_message = "PostgreSQL metadata discovery failed."
 
             db.commit()
             db.refresh(failed_scan)

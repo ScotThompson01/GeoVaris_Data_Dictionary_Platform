@@ -61,7 +61,7 @@ class PostgreSQLConnector(BaseDatabaseConnector):
         except psycopg.Error as exc:
             raise ConnectionError(
                 "Unable to validate the PostgreSQL connection."
-            ) from exc
+            ) from None
 
     def discover_objects(
         self,
@@ -148,7 +148,7 @@ class PostgreSQLConnector(BaseDatabaseConnector):
         except psycopg.Error as exc:
             raise ConnectionError(
                 "Unable to discover PostgreSQL metadata."
-            ) from exc
+            ) from None
 
     def _discover_fields(
         self,

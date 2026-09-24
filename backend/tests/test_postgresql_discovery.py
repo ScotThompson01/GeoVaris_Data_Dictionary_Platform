@@ -232,7 +232,7 @@ def test_discover_postgresql_marks_scan_failed_on_connection_error(
     connector = mock_connector_class.return_value
     connector.connector_version = "0.2.0"
     connector.validate_connection.side_effect = ConnectionError(
-        "Unable to connect to PostgreSQL."
+        "Unable to connect to PostgreSQL. Password: dummy-password-must-not-be-saved"
     )
 
     db = MagicMock()
@@ -264,10 +264,8 @@ def test_discover_postgresql_marks_scan_failed_on_connection_error(
 
     assert scan.status == "failed"
     assert scan.completed_at is not None
-    assert (
-        scan.error_message
-        == "Unable to connect to PostgreSQL."
-    )
+    assert scan.error_message == "PostgreSQL metadata discovery failed."
+    assert "dummy-password-must-not-be-saved" not in scan.error_message
 
     db.rollback.assert_called_once()
     assert db.commit.call_count == 2
