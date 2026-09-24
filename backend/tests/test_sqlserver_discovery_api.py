@@ -209,3 +209,29 @@ def test_sqlserver_discovery_rejects_invalid_port(
     )
 
     mock_discover_sqlserver.assert_not_called()
+
+@patch("app.api.routes.discovery.discover_sqlserver")
+def test_sqlserver_discovery_sanitizes_value_error(mock_discover):
+    secret = "dummy-password-must-not-appear"
+    mock_discover.side_effect = ValueError(
+        f"Invalid connection details; password: {secret}"
+    )
+
+    response = client.post(
+        "/api/v1/discovery/sqlserver",
+        json={
+            "data_source_id": str(uuid.uuid4()),
+            "host": "database.example.internal",
+            "port": 1433,
+            "database": "customer_data",
+            "username": "readonly_user",
+            "password": secret,
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "Invalid database discovery request or data source."
+    )
+    assert secret not in response.text
+    mock_discover.assert_called_once()

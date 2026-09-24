@@ -216,3 +216,51 @@ export async function discoverFile(
     }),
   );
 }
+
+export async function createDataSource(
+  body: {
+    project_id: string;
+    name: string;
+    source_type: "sql_server" | "postgresql";
+  },
+): Promise<DataSource> {
+  return parse<DataSource>(
+    await fetch("/api/data/data-sources", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ...body,
+        connection_mode: "database",
+      }),
+    }),
+  );
+}
+
+export type DatabaseDiscoveryRequest = {
+  data_source_id: string;
+  source_type: "postgresql" | "sql_server";
+  host: string;
+  port: number;
+  database: string;
+  username: string;
+  password?: string;
+};
+
+export async function discoverDatabase(
+  request: DatabaseDiscoveryRequest,
+): Promise<FileDiscoveryScan> {
+  return parse<FileDiscoveryScan>(
+    await fetch("/api/data/database-discovery", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(request),
+    }),
+  );
+}

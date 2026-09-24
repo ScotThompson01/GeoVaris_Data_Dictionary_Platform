@@ -30,12 +30,15 @@ class SQLServerConnector(BaseDatabaseConnector):
         persisted or logged.
         """
 
+        def odbc_value(value: str) -> str:
+            return "{" + value.replace("}", "}}") + "}"
+
         parts = [
-            f"DRIVER={{{self.odbc_driver}}}",
-            f"SERVER={config.host},{config.port}",
-            f"DATABASE={config.database}",
-            f"UID={config.username or ''}",
-            f"PWD={password or ''}",
+            f"DRIVER={odbc_value(self.odbc_driver)}",
+            f"SERVER={odbc_value(f'{config.host},{config.port}')}",
+            f"DATABASE={odbc_value(config.database)}",
+            f"UID={odbc_value(config.username or '')}",
+            f"PWD={odbc_value(password or '')}",
             "ApplicationIntent=ReadOnly",
         ]
 
@@ -96,7 +99,7 @@ class SQLServerConnector(BaseDatabaseConnector):
         except pyodbc.Error as exc:
             raise ConnectionError(
                 "Unable to validate the SQL Server connection."
-            ) from exc
+            ) from None
 
     def discover_objects(
         self,
@@ -189,7 +192,7 @@ class SQLServerConnector(BaseDatabaseConnector):
         except pyodbc.Error as exc:
             raise ConnectionError(
                 "Unable to discover SQL Server metadata."
-            ) from exc
+            ) from None
 
     def _discover_fields(
         self,

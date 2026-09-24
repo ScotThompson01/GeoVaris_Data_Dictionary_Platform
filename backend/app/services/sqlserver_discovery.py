@@ -79,7 +79,7 @@ def discover_sqlserver(
         if scan is not None:
             scan.status = "failed"
             scan.completed_at = datetime.now(timezone.utc)
-            scan.error_message = str(exc)[:2000]
+            scan.error_message = "SQL Server metadata discovery failed."
 
             db.commit()
             db.refresh(scan)

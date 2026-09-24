@@ -209,10 +209,10 @@ def run_postgresql_discovery(
             password=password,
         )
 
-    except ValueError as exc:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
+            detail="Invalid database discovery request or data source.",
         )
 
     except ConnectionError:
@@ -279,10 +279,10 @@ def run_sqlserver_discovery(
             password=password,
         )
 
-    except ValueError as exc:
+    except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(exc),
+            detail="Invalid database discovery request or data source.",
         )
 
     except ConnectionError:

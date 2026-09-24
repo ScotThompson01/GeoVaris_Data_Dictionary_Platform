@@ -1,8 +1,11 @@
 ﻿"use client";
 
 import { useEffect, useState } from "react";
+import type { FormEvent } from "react";
 
 import {
+  createDataSource,
+  discoverDatabase,
   discoverFile,
   getDataSources,
   getProjects,
@@ -19,6 +22,21 @@ export default function Page() {
   const [fileNames, setFileNames] = useState<Record<string, string>>({});
   const [runningSourceId, setRunningSourceId] = useState("");
   const [discoveryMessage, setDiscoveryMessage] = useState("");
+  const [databaseName, setDatabaseName] = useState("");
+  const [databaseType, setDatabaseType] = useState<
+    "postgresql" | "sql_server"
+  >("postgresql");
+  const [registeringDatabase, setRegisteringDatabase] = useState(false);
+  const [databaseRegistrationMessage, setDatabaseRegistrationMessage] =
+    useState("");
+  const [discoverySourceId, setDiscoverySourceId] = useState("");
+  const [databaseHost, setDatabaseHost] = useState("");
+  const [databasePort, setDatabasePort] = useState("");
+  const [databaseNameForDiscovery, setDatabaseNameForDiscovery] = useState("");
+  const [databaseUsername, setDatabaseUsername] = useState("");
+  const [databasePassword, setDatabasePassword] = useState("");
+  const [runningDatabaseDiscovery, setRunningDatabaseDiscovery] = useState(false);
+  const [databaseDiscoveryMessage, setDatabaseDiscoveryMessage] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -43,6 +61,15 @@ export default function Page() {
   useEffect(() => {
     let active = true;
 
+    setDiscoverySourceId("");
+    setDatabaseHost("");
+    setDatabasePort("");
+    setDatabaseNameForDiscovery("");
+    setDatabaseUsername("");
+    setDatabasePassword("");
+    setDatabaseDiscoveryMessage("");
+    setDatabaseRegistrationMessage("");
+
     if (!selectedProjectId) {
       setSources([]);
       setLoadingSources(false);
@@ -57,14 +84,7 @@ export default function Page() {
       try {
         const results = await getDataSources(selectedProjectId);
         if (active) {
-          setSources(
-            results.filter(
-              (source) =>
-                source.connection_mode === "file" &&
-                (source.source_type === "csv" ||
-                  source.source_type === "excel"),
-            ),
-          );
+          setSources(results);
         }
       } catch {
         if (active) setMessage("Unable to load file data sources.");
@@ -78,6 +98,119 @@ export default function Page() {
       active = false;
     };
   }, [selectedProjectId]);
+
+  const fileSources = sources.filter(
+    (source) =>
+      source.connection_mode === "file" &&
+      (source.source_type === "csv" || source.source_type === "excel"),
+  );
+
+  const databaseSources = sources.filter(
+    (source) =>
+      source.connection_mode === "database" &&
+      (source.source_type === "postgresql" ||
+        source.source_type === "sql_server"),
+  );
+
+  async function registerDatabase(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const name = databaseName.trim();
+    const projectId = selectedProjectId;
+
+    if (!projectId || !name || registeringDatabase) return;
+
+    setRegisteringDatabase(true);
+    setDatabaseRegistrationMessage("");
+
+    try {
+      await createDataSource({
+        project_id: projectId,
+        name,
+        source_type: databaseType,
+      });
+
+      setDatabaseName("");
+      setDatabaseRegistrationMessage(`Registered database source: ${name}.`);
+
+      try {
+        const updatedSources = await getDataSources(projectId);
+        setSources(updatedSources);
+      } catch {
+        setDatabaseRegistrationMessage(
+          `Registered database source: ${name}. Refresh the page to update the list.`,
+        );
+      }
+    } catch {
+      setDatabaseRegistrationMessage(
+        "Unable to register the database source. Check its name and try again.",
+      );
+    } finally {
+      setRegisteringDatabase(false);
+    }
+  }
+
+  function selectDiscoverySource(source: DataSource) {
+    setDiscoverySourceId(source.id);
+    setDatabaseHost("");
+    setDatabasePort(source.source_type === "postgresql" ? "5432" : "1433");
+    setDatabaseNameForDiscovery("");
+    setDatabaseUsername("");
+    setDatabasePassword("");
+    setDatabaseDiscoveryMessage("");
+  }
+
+  async function runDatabaseDiscovery(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const source = databaseSources.find(
+      (item) => item.id === discoverySourceId,
+    );
+    const host = databaseHost.trim();
+    const database = databaseNameForDiscovery.trim();
+    const username = databaseUsername.trim();
+    const port = Number(databasePort);
+
+    if (
+      !source ||
+      !source.is_active ||
+      !host ||
+      !database ||
+      !username ||
+      !Number.isInteger(port) ||
+      port < 1 ||
+      port > 65535 ||
+      runningDatabaseDiscovery
+    ) {
+      return;
+    }
+
+    setRunningDatabaseDiscovery(true);
+    setDatabaseDiscoveryMessage("");
+
+    try {
+      const scan = await discoverDatabase({
+        data_source_id: source.id,
+        source_type: source.source_type as "postgresql" | "sql_server",
+        host,
+        port,
+        database,
+        username,
+        ...(databasePassword ? { password: databasePassword } : {}),
+      });
+
+      setDatabaseDiscoveryMessage(
+        `Discovery for ${source.name}: ${scan.status}. Scan ID: ${scan.id}`,
+      );
+    } catch {
+      setDatabaseDiscoveryMessage(
+        `Discovery for ${source.name} could not be completed. Check the connection details and source permissions.`,
+      );
+    } finally {
+      setDatabasePassword("");
+      setRunningDatabaseDiscovery(false);
+    }
+  }
 
   async function runDiscovery(source: DataSource) {
     const fileName = (fileNames[source.id] ?? "").trim();
@@ -154,10 +287,10 @@ export default function Page() {
             <h3>Registered File Sources</h3>
             {loadingSources ? (
               <p>Loading file sources...</p>
-            ) : sources.length === 0 && !message ? (
+            ) : fileSources.length === 0 && !message ? (
               <p>No CSV or Excel data sources are registered for this project.</p>
             ) : (
-              sources.length > 0 && (
+              fileSources.length > 0 && (
                 <div className="table-scroll">
                   <table>
                     <thead>
@@ -169,7 +302,7 @@ export default function Page() {
                       </tr>
                     </thead>
                     <tbody>
-                      {sources.map((source) => (
+                      {fileSources.map((source) => (
                         <tr key={source.id}>
                           <td>{source.name}</td>
                           <td>
@@ -226,6 +359,199 @@ export default function Page() {
               </p>
             )}
           </>
+        )}
+      </section>
+
+      <section className="card">
+        <h3>Database Sources</h3>
+        <p>
+          Registered PostgreSQL and SQL Server sources for the selected project.
+          Connection details will be supplied when discovery is started.
+        </p>
+
+        <form className="form" onSubmit={registerDatabase}>
+          <label htmlFor="database-source-name">
+            Source name
+            <input
+              id="database-source-name"
+              type="text"
+              value={databaseName}
+              onChange={(event) => setDatabaseName(event.target.value)}
+              maxLength={200}
+              required
+              disabled={!selectedProjectId || registeringDatabase}
+              placeholder="e.g. Reporting database"
+            />
+          </label>
+
+          <label htmlFor="database-source-type">
+            Database type
+            <select
+              id="database-source-type"
+              value={databaseType}
+              onChange={(event) =>
+                setDatabaseType(
+                  event.target.value as "postgresql" | "sql_server",
+                )
+              }
+              disabled={!selectedProjectId || registeringDatabase}
+            >
+              <option value="postgresql">PostgreSQL</option>
+              <option value="sql_server">SQL Server</option>
+            </select>
+          </label>
+
+          <button
+            type="submit"
+            disabled={
+              !selectedProjectId ||
+              !databaseName.trim() ||
+              registeringDatabase
+            }
+          >
+            {registeringDatabase ? "Registering..." : "Register Database Source"}
+          </button>
+
+          {databaseRegistrationMessage && (
+            <p className="notice" role="status">
+              {databaseRegistrationMessage}
+            </p>
+          )}
+        </form>
+
+        {!selectedProjectId ? (
+          <p>Select a project above to view its database sources.</p>
+        ) : loadingSources ? (
+          <p>Loading database sources...</p>
+        ) : databaseSources.length === 0 ? (
+          <p>No PostgreSQL or SQL Server sources are registered for this project.</p>
+        ) : (
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Database Type</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {databaseSources.map((source) => (
+                  <tr key={source.id}>
+                    <td>{source.name}</td>
+                    <td>
+                      {source.source_type === "postgresql"
+                        ? "PostgreSQL"
+                        : "SQL Server"}
+                    </td>
+                    <td>{source.is_active ? "Active" : "Inactive"}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="edit-governance-button"
+                        disabled={!source.is_active || runningDatabaseDiscovery}
+                        onClick={() => selectDiscoverySource(source)}
+                      >
+                        Discover
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {discoverySourceId && (
+          <form className="form" onSubmit={runDatabaseDiscovery}>
+            <h4>
+              Discover metadata:{" "}
+              {databaseSources.find((item) => item.id === discoverySourceId)?.name}
+            </h4>
+            <p className="notice">
+              Enter connection details for this discovery request. Use an account
+              with read-only metadata access. Connection details are not saved
+              with the registered source.
+            </p>
+
+            <label htmlFor="database-discovery-host">
+              Host
+              <input
+                id="database-discovery-host"
+                value={databaseHost}
+                onChange={(event) => setDatabaseHost(event.target.value)}
+                maxLength={255}
+                required
+                disabled={runningDatabaseDiscovery}
+              />
+            </label>
+
+            <label htmlFor="database-discovery-port">
+              Port
+              <input
+                id="database-discovery-port"
+                type="number"
+                min={1}
+                max={65535}
+                step={1}
+                value={databasePort}
+                onChange={(event) => setDatabasePort(event.target.value)}
+                required
+                disabled={runningDatabaseDiscovery}
+              />
+            </label>
+
+            <label htmlFor="database-discovery-name">
+              Database name
+              <input
+                id="database-discovery-name"
+                value={databaseNameForDiscovery}
+                onChange={(event) =>
+                  setDatabaseNameForDiscovery(event.target.value)
+                }
+                maxLength={255}
+                required
+                disabled={runningDatabaseDiscovery}
+              />
+            </label>
+
+            <label htmlFor="database-discovery-username">
+              Username
+              <input
+                id="database-discovery-username"
+                value={databaseUsername}
+                onChange={(event) => setDatabaseUsername(event.target.value)}
+                maxLength={255}
+                required
+                disabled={runningDatabaseDiscovery}
+                autoComplete="off"
+              />
+            </label>
+
+            <label htmlFor="database-discovery-password">
+              Password (if required)
+              <input
+                id="database-discovery-password"
+                type="password"
+                value={databasePassword}
+                onChange={(event) => setDatabasePassword(event.target.value)}
+                disabled={runningDatabaseDiscovery}
+                autoComplete="off"
+              />
+            </label>
+
+            <button type="submit" disabled={runningDatabaseDiscovery}>
+              {runningDatabaseDiscovery
+                ? "Discovering..."
+                : "Start Metadata Discovery"}
+            </button>
+
+            {databaseDiscoveryMessage && (
+              <p className="notice" role="status">
+                {databaseDiscoveryMessage}
+              </p>
+            )}
+          </form>
         )}
       </section>
     </>

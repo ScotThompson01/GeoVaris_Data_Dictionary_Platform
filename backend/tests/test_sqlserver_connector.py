@@ -42,12 +42,12 @@ def test_sqlserver_connection_string():
         in connection_string
     )
     assert (
-        "SERVER=sqlserver.example.internal,1433"
+        "SERVER={sqlserver.example.internal,1433}"
         in connection_string
     )
-    assert "DATABASE=customer_data" in connection_string
-    assert "UID=readonly_user" in connection_string
-    assert "PWD=test-password" in connection_string
+    assert "DATABASE={customer_data}" in connection_string
+    assert "UID={readonly_user}" in connection_string
+    assert "PWD={test-password}" in connection_string
     assert "ApplicationIntent=ReadOnly" in connection_string
     assert "Encrypt=yes" in connection_string
 
@@ -87,7 +87,7 @@ def test_validate_connection_uses_read_only_connection(
     connection_string = call_args.args[0]
 
     assert "ApplicationIntent=ReadOnly" in connection_string
-    assert "PWD=runtime-password" in connection_string
+    assert "PWD={runtime-password}" in connection_string
 
     assert call_args.kwargs["autocommit"] is False
     assert call_args.kwargs["timeout"] == 10
@@ -287,4 +287,20 @@ def test_discover_objects_wraps_pyodbc_errors(
             config,
             "runtime-password",
         )
-        
+
+def test_sqlserver_connection_string_escapes_password():
+    connector = SQLServerConnector()
+    config = DatabaseConnectionConfig(
+        host="sqlserver.example.internal",
+        port=1433,
+        database="customer_data",
+        username="readonly_user",
+    )
+
+    connection_string = connector._connection_string(
+        config,
+        "dummy;password}value",
+    )
+
+    assert "PWD={dummy;password}}value}" in connection_string
+    assert "Encrypt=yes" in connection_string
