@@ -21,7 +21,7 @@ export default async function UserManagementPage() {
 
       <section className="card">
         <h3>User accounts</h3>
-        <UserList />
+        <UserList currentUserId={user.user_id} />
       </section>
     </>
   );

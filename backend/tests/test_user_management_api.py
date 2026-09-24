@@ -331,3 +331,153 @@ def test_invalid_password_is_not_exposed_in_validation_response():
     assert invalid_password not in response.text
     db.add.assert_not_called()
     db.commit.assert_not_called()
+
+
+def test_installation_admin_can_promote_another_user():
+    admin = make_user(is_installation_admin=True)
+    target = make_user(is_installation_admin=False)
+    target.username = "otheruser"
+    db = MagicMock()
+    db.get.return_value = target
+
+    def override_authentication():
+        return AuthenticatedSession(
+            user=admin,
+            token="test-only-token",
+        )
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[require_authenticated_session] = (
+        override_authentication
+    )
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        with TestClient(app) as test_client:
+            response = test_client.patch(
+                f"/api/v1/user-management/{target.id}/role",
+                json={"is_installation_admin": True},
+            )
+    finally:
+        app.dependency_overrides.pop(
+            require_authenticated_session, None
+        )
+        app.dependency_overrides.pop(get_db, None)
+
+    assert response.status_code == 200
+    assert target.is_installation_admin is True
+    db.commit.assert_called_once()
+    assert response.json()["is_installation_admin"] is True
+
+
+def test_installation_admin_cannot_demote_self():
+    admin = make_user(is_installation_admin=True)
+    db = MagicMock()
+    db.get.return_value = admin
+
+    def override_authentication():
+        return AuthenticatedSession(
+            user=admin,
+            token="test-only-token",
+        )
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[require_authenticated_session] = (
+        override_authentication
+    )
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        with TestClient(app) as test_client:
+            response = test_client.patch(
+                f"/api/v1/user-management/{admin.id}/role",
+                json={"is_installation_admin": False},
+            )
+    finally:
+        app.dependency_overrides.pop(
+            require_authenticated_session, None
+        )
+        app.dependency_overrides.pop(get_db, None)
+
+    assert response.status_code == 409
+    assert admin.is_installation_admin is True
+    db.commit.assert_not_called()
+
+
+def test_installation_admin_can_demote_another_admin():
+    admin = make_user(is_installation_admin=True)
+    target = make_user(is_installation_admin=True)
+    target.username = "otheradmin"
+    db = MagicMock()
+    db.get.return_value = target
+
+    def override_authentication():
+        return AuthenticatedSession(
+            user=admin,
+            token="test-only-token",
+        )
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[require_authenticated_session] = (
+        override_authentication
+    )
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        with TestClient(app) as test_client:
+            response = test_client.patch(
+                f"/api/v1/user-management/{target.id}/role",
+                json={"is_installation_admin": False},
+            )
+    finally:
+        app.dependency_overrides.pop(
+            require_authenticated_session, None
+        )
+        app.dependency_overrides.pop(get_db, None)
+
+    assert response.status_code == 200
+    assert target.is_installation_admin is False
+    db.commit.assert_called_once()
+    assert response.json()["is_installation_admin"] is False
+
+
+def test_standard_user_cannot_change_another_users_role():
+    standard_user = make_user(is_installation_admin=False)
+    target = make_user(is_installation_admin=False)
+    db = MagicMock()
+
+    def override_authentication():
+        return AuthenticatedSession(
+            user=standard_user,
+            token="test-only-token",
+        )
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[require_authenticated_session] = (
+        override_authentication
+    )
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        with TestClient(app) as test_client:
+            response = test_client.patch(
+                f"/api/v1/user-management/{target.id}/role",
+                json={"is_installation_admin": True},
+            )
+    finally:
+        app.dependency_overrides.pop(
+            require_authenticated_session, None
+        )
+        app.dependency_overrides.pop(get_db, None)
+
+    assert response.status_code == 403
+    db.get.assert_not_called()
+    db.commit.assert_not_called()
