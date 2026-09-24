@@ -17,6 +17,7 @@ from app.api.routes import (
     projects,
     scans,
     source_objects,
+    user_management,
 )
 from app.core.config import settings
 
@@ -120,3 +121,41 @@ app.include_router(
     tags=["Field Governance"],
     dependencies=protected_dependencies,
 )
+
+# Installation administrator endpoints.
+app.include_router(
+    user_management.router,
+    prefix="/api/v1/user-management",
+    tags=["User Management"],
+)
+
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.exception_handlers import request_validation_exception_handler
+from starlette.requests import Request
+
+
+@app.exception_handler(RequestValidationError)
+async def safe_user_management_validation_error(
+    request: Request,
+    exc: RequestValidationError,
+):
+    if (
+        request.method == "POST"
+        and request.url.path == "/api/v1/user-management"
+    ):
+        safe_errors = [
+            {
+                key: value
+                for key, value in error.items()
+                if key not in {"input", "ctx", "url"}
+            }
+            for error in exc.errors()
+        ]
+        return JSONResponse(
+            status_code=422,
+            content={"detail": safe_errors},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    return await request_validation_exception_handler(request, exc)

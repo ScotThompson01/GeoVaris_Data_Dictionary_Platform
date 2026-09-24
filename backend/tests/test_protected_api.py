@@ -13,6 +13,7 @@ client = TestClient(app)
     ("method", "path"),
     [
         ("GET", "/api/v1/clients"),
+        ("GET", "/api/v1/user-management"),
         ("POST", "/api/v1/clients"),
         ("GET", "/api/v1/projects"),
         ("GET", "/api/v1/data-sources"),

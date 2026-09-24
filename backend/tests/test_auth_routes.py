@@ -111,3 +111,40 @@ def test_logout_revokes_authenticated_session():
         db,
         "authenticated-test-token",
     )
+
+@pytest.mark.parametrize("is_installation_admin", [False, True])
+def test_me_returns_authenticated_user_role(is_installation_admin: bool):
+    from app.api.routes.auth import get_current_user
+
+    user = make_user()
+    user.is_installation_admin = is_installation_admin
+
+    authenticated = AuthenticatedSession(
+        user=user,
+        token="authenticated-test-token",
+    )
+
+    result = get_current_user(authenticated)
+
+    assert result.user_id == user.id
+    assert result.username == user.username
+    assert result.is_installation_admin is is_installation_admin
+
+
+@pytest.mark.parametrize("is_installation_admin", [False, True])
+def test_me_returns_authenticated_user_role(is_installation_admin: bool):
+    from app.api.routes.auth import get_current_user
+
+    user = make_user()
+    user.is_installation_admin = is_installation_admin
+
+    authenticated = AuthenticatedSession(
+        user=user,
+        token="authenticated-test-token",
+    )
+
+    result = get_current_user(authenticated)
+
+    assert result.user_id == user.id
+    assert result.username == user.username
+    assert result.is_installation_admin is is_installation_admin

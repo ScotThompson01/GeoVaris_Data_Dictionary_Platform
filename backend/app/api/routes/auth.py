@@ -64,6 +64,7 @@ def get_current_user(
     return CurrentUserResponse(
         user_id=authenticated.user.id,
         username=authenticated.user.username,
+        is_installation_admin=authenticated.user.is_installation_admin,
     )
 
 

@@ -1,4 +1,3 @@
-
 import type { ReactNode } from "react";
 
 import AppShell from "../../components/AppShell";
@@ -9,7 +8,11 @@ export default async function ProtectedLayout({
 }: {
   children: ReactNode;
 }) {
-  await requireSession();
+  const user = await requireSession();
 
-  return <AppShell>{children}</AppShell>;
+  return (
+    <AppShell isInstallationAdmin={user.is_installation_admin}>
+      {children}
+    </AppShell>
+  );
 }
