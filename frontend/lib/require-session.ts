@@ -11,6 +11,7 @@ const SESSION_COOKIE = "geovaris_session";
 export type CurrentUser = {
   user_id: string;
   username: string;
+  is_installation_admin: boolean;
 };
 
 export async function requireSession(): Promise<CurrentUser> {
@@ -50,7 +51,8 @@ export async function requireSession(): Promise<CurrentUser> {
 
   if (
     typeof user.user_id !== "string" ||
-    typeof user.username !== "string"
+    typeof user.username !== "string" ||
+    typeof user.is_installation_admin !== "boolean"
   ) {
     throw new Error("Invalid authentication service response.");
   }
@@ -58,5 +60,6 @@ export async function requireSession(): Promise<CurrentUser> {
   return {
     user_id: user.user_id,
     username: user.username,
+    is_installation_admin: user.is_installation_admin,
   };
 }

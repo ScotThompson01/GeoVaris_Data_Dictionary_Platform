@@ -6,7 +6,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-export default function Sidebar() {
+export default function Sidebar({ isInstallationAdmin }: { isInstallationAdmin: boolean }) {
   const router = useRouter();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [signOutError, setSignOutError] = useState("");
@@ -63,6 +63,9 @@ export default function Sidebar() {
           Data Sources <small>Soon</small>
         </div>
         <Link href="/dictionary">Data Dictionary</Link>
+        {isInstallationAdmin && (
+          <Link href="/user-management">User Management</Link>
+        )}
         <div className="disabled">
           Data Quality <small>Soon</small>
         </div>

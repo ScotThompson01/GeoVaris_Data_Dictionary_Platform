@@ -19,6 +19,7 @@ class SignInResponse(BaseModel):
 class CurrentUserResponse(BaseModel):
     user_id: UUID
     username: str
+    is_installation_admin: bool
 
 class LogoutRequest(BaseModel):
     session_token: str = Field(min_length=1)
