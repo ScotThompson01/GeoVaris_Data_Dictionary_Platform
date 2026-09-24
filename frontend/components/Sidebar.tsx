@@ -59,9 +59,7 @@ export default function Sidebar({ isInstallationAdmin }: { isInstallationAdmin: 
         <Link href="/">Dashboard</Link>
         <Link href="/clients">Clients</Link>
         <Link href="/projects">Projects</Link>
-        <div className="disabled">
-          Data Sources <small>Soon</small>
-        </div>
+        <Link href="/data-sources">Data Sources</Link>
         <Link href="/dictionary">Data Dictionary</Link>
         {isInstallationAdmin && (
           <Link href="/user-management">User Management</Link>

@@ -1,6 +1,7 @@
 
 import type {
   Client,
+  DataSource,
   DictionaryField,
   FieldGovernanceMetadata,
   FieldGovernanceUpdate,
@@ -165,5 +166,53 @@ export async function getFieldProfilingResults(
         cache: "no-store",
       },
     ),
+  );
+}
+
+export async function getDataSources(
+  projectId: string,
+): Promise<DataSource[]> {
+  const params = new URLSearchParams({
+    project_id: projectId,
+  });
+
+  return parse<DataSource[]>(
+    await fetch(`/api/data/data-sources?${params.toString()}`, {
+      credentials: "same-origin",
+      cache: "no-store",
+    }),
+  );
+}
+
+export type FileDiscoveryScan = {
+  id: string;
+  data_source_id: string;
+  scan_type: string;
+  status: string;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  connector_version: string | null;
+  created_at: string;
+};
+
+export async function discoverFile(
+  dataSourceId: string,
+  sourceType: "csv" | "excel",
+  fileName: string,
+): Promise<FileDiscoveryScan> {
+  return parse<FileDiscoveryScan>(
+    await fetch("/api/data/file-discovery", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        data_source_id: dataSourceId,
+        source_type: sourceType,
+        file_name: fileName,
+      }),
+    }),
   );
 }
