@@ -21,7 +21,7 @@ def discover_sqlserver(
     if data_source is None:
         raise ValueError("Data source not found.")
 
-    if data_source.source_type != "sqlserver":
+    if data_source.source_type != "sql_server":
         raise ValueError(
             "Data source is not configured as a SQL Server source."
         )

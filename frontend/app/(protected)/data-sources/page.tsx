@@ -35,6 +35,7 @@ export default function Page() {
   const [databaseNameForDiscovery, setDatabaseNameForDiscovery] = useState("");
   const [databaseUsername, setDatabaseUsername] = useState("");
   const [databasePassword, setDatabasePassword] = useState("");
+  const [disableDatabaseEncryption, setDisableDatabaseEncryption] = useState(false);
   const [runningDatabaseDiscovery, setRunningDatabaseDiscovery] = useState(false);
   const [databaseDiscoveryMessage, setDatabaseDiscoveryMessage] = useState("");
 
@@ -62,6 +63,7 @@ export default function Page() {
     let active = true;
 
     setDiscoverySourceId("");
+    setDisableDatabaseEncryption(false);
     setDatabaseHost("");
     setDatabasePort("");
     setDatabaseNameForDiscovery("");
@@ -112,6 +114,10 @@ export default function Page() {
         source.source_type === "sql_server"),
   );
 
+  const selectedDiscoverySource = databaseSources.find(
+    (source) => source.id === discoverySourceId,
+  );
+
   async function registerDatabase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -152,6 +158,7 @@ export default function Page() {
 
   function selectDiscoverySource(source: DataSource) {
     setDiscoverySourceId(source.id);
+    setDisableDatabaseEncryption(false);
     setDatabaseHost("");
     setDatabasePort(source.source_type === "postgresql" ? "5432" : "1433");
     setDatabaseNameForDiscovery("");
@@ -196,6 +203,7 @@ export default function Page() {
         port,
         database,
         username,
+        ...(disableDatabaseEncryption ? { ssl_mode: "disable" as const } : {}),
         ...(databasePassword ? { password: databasePassword } : {}),
       });
 
@@ -539,6 +547,21 @@ export default function Page() {
                 autoComplete="off"
               />
             </label>
+
+            {selectedDiscoverySource?.source_type === "sql_server" && (
+              <label htmlFor="database-discovery-disable-encryption">
+                <input
+                  id="database-discovery-disable-encryption"
+                  type="checkbox"
+                  checked={disableDatabaseEncryption}
+                  onChange={(event) =>
+                    setDisableDatabaseEncryption(event.target.checked)
+                  }
+                  disabled={runningDatabaseDiscovery}
+                />
+                Disable connection encryption (local/test environments only)
+              </label>
+            )}
 
             <button type="submit" disabled={runningDatabaseDiscovery}>
               {runningDatabaseDiscovery

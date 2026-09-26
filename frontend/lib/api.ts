@@ -246,6 +246,7 @@ export type DatabaseDiscoveryRequest = {
   port: number;
   database: string;
   username: string;
+  ssl_mode?: "disable";
   password?: string;
 };
 
