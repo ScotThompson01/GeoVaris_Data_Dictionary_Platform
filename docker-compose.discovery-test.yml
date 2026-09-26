@@ -19,3 +19,15 @@
       retries: 15
     networks:
       - default
+
+  sqlserver_discovery_test_db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    restart: "no"
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Discovery_admin_test_only_1!"
+      MSSQL_PID: "Developer"
+    volumes:
+      - ./test_fixtures/sqlserver_discovery/init.sql:/fixtures/init.sql:ro
+    networks:
+      - default

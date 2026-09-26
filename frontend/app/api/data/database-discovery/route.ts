@@ -67,6 +67,8 @@ export async function POST(request: NextRequest) {
     !Number.isInteger(input.port) ||
     input.port < 1 ||
     input.port > 65535 ||
+    (input.ssl_mode !== undefined &&
+      (input.source_type !== "sql_server" || input.ssl_mode !== "disable")) ||
     (input.password !== undefined &&
       (typeof input.password !== "string" ||
         input.password.length > 4096))
@@ -94,6 +96,9 @@ export async function POST(request: NextRequest) {
           port: input.port,
           database: input.database,
           username: input.username,
+          ...(input.ssl_mode === "disable"
+            ? { ssl_mode: "disable" }
+            : {}),
           ...(input.password === undefined
             ? {}
             : { password: input.password }),

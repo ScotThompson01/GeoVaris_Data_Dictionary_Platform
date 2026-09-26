@@ -30,7 +30,7 @@ def test_discover_sqlserver_persists_objects_and_completes_scan(
         id=data_source_id,
         project_id=uuid.uuid4(),
         name="Test SQL Server",
-        source_type="sqlserver",
+        source_type="sql_server",
         connection_mode="database",
         is_active=True,
     )
@@ -125,7 +125,7 @@ def test_discover_sqlserver_marks_scan_failed_on_connection_error(
         id=data_source_id,
         project_id=uuid.uuid4(),
         name="Test SQL Server",
-        source_type="sqlserver",
+        source_type="sql_server",
         connection_mode="database",
         is_active=True,
     )
@@ -243,7 +243,7 @@ def test_discover_sqlserver_rejects_inactive_data_source():
         id=uuid.uuid4(),
         project_id=uuid.uuid4(),
         name="Inactive SQL Server",
-        source_type="sqlserver",
+        source_type="sql_server",
         connection_mode="database",
         is_active=False,
     )
