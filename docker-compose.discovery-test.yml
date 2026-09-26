@@ -1,0 +1,21 @@
+﻿services:
+  discovery_test_db:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      POSTGRES_DB: geovaris_discovery_test
+      POSTGRES_USER: geovaris_discovery_admin
+      POSTGRES_PASSWORD: discovery_admin_test_only_not_for_deployment
+    volumes:
+      - ./test_fixtures/postgresql_discovery/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U geovaris_discovery_admin -d geovaris_discovery_test",
+        ]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    networks:
+      - default
