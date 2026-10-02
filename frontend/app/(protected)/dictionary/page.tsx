@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 
 import FieldGovernancePanel from "../../../components/FieldGovernancePanel";
 import FieldProfilingPanel from "../../../components/FieldProfilingPanel";
+import FieldTechnicalMetadataPanel from "../../../components/FieldTechnicalMetadataPanel";
 import { getDictionaryFields, getProjects } from "../../../lib/api";
 import type { DictionaryFilters } from "../../../lib/api";
 import type { DictionaryField, Project } from "../../../lib/types";
@@ -443,6 +444,8 @@ export default function DictionaryPage() {
 
         {selectedField && (
           <div key={selectedField.field_id}>
+            <FieldTechnicalMetadataPanel field={selectedField} />
+
             <FieldProfilingPanel
               field={selectedField}
             />

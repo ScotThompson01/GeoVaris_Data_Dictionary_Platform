@@ -8,6 +8,11 @@ export type DictionaryField = {
 
   native_data_type: string | null;
   normalized_data_type: string | null;
+  max_length: number | null;
+  numeric_precision: number | null;
+  numeric_scale: number | null;
+  default_value: string | null;
+  source_comment: string | null;
 
   is_nullable: boolean | null;
   is_primary_key: boolean;
@@ -16,6 +21,10 @@ export type DictionaryField = {
   source_object_id: string;
   object_name: string;
   object_type: string;
+  schema_name: string | null;
+  native_name: string | null;
+  object_description: string | null;
+  object_row_count: number | null;
 
   data_source_id: string;
   data_source_name: string;
