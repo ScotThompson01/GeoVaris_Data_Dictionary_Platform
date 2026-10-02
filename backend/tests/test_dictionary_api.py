@@ -164,3 +164,66 @@ def test_dictionary_combines_source_department_and_owner_filters():
         assert "Test Owner" in values
     finally:
         app.dependency_overrides.pop(get_db, None)
+def test_dictionary_returns_discovered_technical_metadata():
+    project_id = uuid.uuid4()
+    field_id = uuid.uuid4()
+    source_object_id = uuid.uuid4()
+    data_source_id = uuid.uuid4()
+    db = MagicMock()
+
+    row = {
+        "field_id": field_id,
+        "field_name": "customer_code",
+        "ordinal_position": 2,
+        "native_data_type": "character varying(50)",
+        "normalized_data_type": "string",
+        "max_length": 50,
+        "numeric_precision": None,
+        "numeric_scale": None,
+        "default_value": "'UNKNOWN'",
+        "source_comment": "External customer code",
+        "is_nullable": False,
+        "is_primary_key": False,
+        "is_unique": True,
+        "source_object_id": source_object_id,
+        "object_name": "customers",
+        "object_type": "table",
+        "schema_name": "public",
+        "native_name": "public.customers",
+        "object_description": "Customer master data",
+        "object_row_count": 1250,
+        "data_source_id": data_source_id,
+        "data_source_name": "Test PostgreSQL",
+        "source_type": "postgresql",
+        "department": None,
+        "data_owner": None,
+        "is_cde": False,
+    }
+
+    db.execute.return_value.mappings.return_value.all.return_value = [row]
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        response = client.get(
+            "/api/v1/dictionary",
+            params={"project_id": str(project_id)},
+        )
+
+        assert response.status_code == 200
+        field = response.json()[0]
+
+        assert field["max_length"] == 50
+        assert field["numeric_precision"] is None
+        assert field["numeric_scale"] is None
+        assert field["default_value"] == "'UNKNOWN'"
+        assert field["source_comment"] == "External customer code"
+        assert field["schema_name"] == "public"
+        assert field["native_name"] == "public.customers"
+        assert field["object_description"] == "Customer master data"
+        assert field["object_row_count"] == 1250
+    finally:
+        app.dependency_overrides.pop(get_db, None)
