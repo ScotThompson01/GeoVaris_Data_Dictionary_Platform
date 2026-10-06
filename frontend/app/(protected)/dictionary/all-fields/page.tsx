@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import Link from "next/link";
 
@@ -7,8 +7,15 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import FieldGovernancePanel from "../../../../components/FieldGovernancePanel";
 import FieldProfilingPanel from "../../../../components/FieldProfilingPanel";
 import FieldTechnicalMetadataPanel from "../../../../components/FieldTechnicalMetadataPanel";
-import { getDictionaryFields, getProjects } from "../../../../lib/api";
-import type { DictionaryFilters } from "../../../../lib/api";
+import {
+  exportDictionary,
+  getDictionaryFields,
+  getProjects,
+} from "../../../../lib/api";
+import type {
+  DictionaryExportFormat,
+  DictionaryFilters,
+} from "../../../../lib/api";
 import type { DictionaryField, Project } from "../../../../lib/types";
 
 export default function DictionaryPage() {
@@ -25,6 +32,8 @@ export default function DictionaryPage() {
 
   const [loadingProjects, setLoadingProjects] = useState(true);
   const [loadingFields, setLoadingFields] = useState(false);
+  const [exportingFormat, setExportingFormat] =
+    useState<DictionaryExportFormat | null>(null);
   const [message, setMessage] = useState("");
   const [projectMessage, setProjectMessage] = useState("");
 
@@ -145,6 +154,48 @@ export default function DictionaryPage() {
 
     if (selectedProjectId) {
       void loadDictionary(selectedProjectId, "", {});
+    }
+  }
+
+  async function downloadDictionary(
+    format: DictionaryExportFormat,
+  ) {
+    if (!selectedProjectId || exportingFormat) {
+      return;
+    }
+
+    setExportingFormat(format);
+    setMessage("");
+
+    try {
+      const result = await exportDictionary(
+        selectedProjectId,
+        format,
+        search,
+        {
+          dataSourceId: sourceId,
+          department,
+          dataOwner,
+          isCde:
+            cdeStatus === ""
+              ? undefined
+              : cdeStatus === "true",
+        },
+      );
+
+      const downloadUrl = URL.createObjectURL(result.blob);
+      const link = document.createElement("a");
+
+      link.href = downloadUrl;
+      link.download = result.filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(downloadUrl);
+    } catch {
+      setMessage("Dictionary export could not be generated.");
+    } finally {
+      setExportingFormat(null);
     }
   }
 
@@ -308,6 +359,24 @@ export default function DictionaryPage() {
             disabled={!hasSelectedProject || loadingFields}
           >
             Clear
+          </button>
+
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void downloadDictionary("csv")}
+            disabled={!hasSelectedProject || exportingFormat !== null}
+          >
+            {exportingFormat === "csv" ? "Exporting..." : "Export CSV"}
+          </button>
+
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void downloadDictionary("xlsx")}
+            disabled={!hasSelectedProject || exportingFormat !== null}
+          >
+            {exportingFormat === "xlsx" ? "Exporting..." : "Export Excel"}
           </button>
         </form>
 
