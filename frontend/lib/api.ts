@@ -85,6 +85,14 @@ export type DictionaryFilters = {
   dataOwner?: string;
   isCde?: boolean;
 };
+
+export type DictionaryExportFormat = "csv" | "xlsx";
+
+export type DictionaryExport = {
+  blob: Blob;
+  filename: string;
+};
+
 export async function getDictionaryFields(
   projectId: string,
   search?: string,
@@ -116,6 +124,60 @@ export async function getDictionaryFields(
       cache: "no-store",
     }),
   );
+}
+
+export async function exportDictionary(
+  projectId: string,
+  format: DictionaryExportFormat,
+  search?: string,
+  filters?: DictionaryFilters,
+): Promise<DictionaryExport> {
+  const params = new URLSearchParams({
+    project_id: projectId,
+    format,
+  });
+
+  if (search?.trim()) {
+    params.set("search", search.trim());
+  }
+  if (filters?.dataSourceId) {
+    params.set("data_source_id", filters.dataSourceId);
+  }
+  if (filters?.department) {
+    params.set("department", filters.department);
+  }
+  if (filters?.dataOwner) {
+    params.set("data_owner", filters.dataOwner);
+  }
+  if (filters?.isCde !== undefined) {
+    params.set("is_cde", String(filters.isCde));
+  }
+
+  const response = await fetch(
+    `/api/data/dictionary/export?${params.toString()}`,
+    {
+      credentials: "same-origin",
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(
+      (await response.text()) ||
+        `Export failed: ${response.status}`,
+    );
+  }
+
+  const disposition = response.headers.get("content-disposition");
+  const filenameMatch = disposition?.match(/filename="([^"]+)"/);
+  const filename =
+    filenameMatch?.[1] ??
+    `geovaris-data-dictionary.${format}`;
+
+  return {
+    blob: await response.blob(),
+    filename,
+  };
 }
 
 export async function getFieldGovernance(
