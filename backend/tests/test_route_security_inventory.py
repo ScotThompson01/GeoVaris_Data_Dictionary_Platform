@@ -37,6 +37,7 @@ PROTECTED_PATHS = {
     "/api/v1/profiling-results",
     "/api/v1/profiling-results/{profiling_result_id}",
     "/api/v1/dictionary",
+    "/api/v1/dictionary/export",
     "/api/v1/field-governance/{data_field_id}",
 }
 
