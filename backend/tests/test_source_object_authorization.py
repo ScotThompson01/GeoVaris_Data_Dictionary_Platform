@@ -230,3 +230,86 @@ def test_user_without_project_access_cannot_create_source_object():
     finally:
         app.dependency_overrides.pop(require_authenticated_session, None)
         app.dependency_overrides.pop(get_db, None)
+
+def test_user_with_project_access_can_create_namespaced_source_object():
+    data_source_id = uuid.uuid4()
+    project_id = uuid.uuid4()
+    user = User(
+        id=uuid.uuid4(),
+        username="source_object_create_allowed_test_user",
+        password_hash="test-only-placeholder",
+        is_active=True,
+    )
+    now = datetime.now(timezone.utc)
+    data_source = DataSource(
+        id=data_source_id,
+        project_id=project_id,
+        name="Databricks namespace test source",
+        source_type="databricks",
+        description=None,
+        connection_mode="database",
+        is_active=True,
+        created_at=now,
+        updated_at=now,
+    )
+
+    db = MagicMock()
+    db.get.return_value = data_source
+    db.scalar.return_value = uuid.uuid4()
+
+    def populate_created_source_object(source_object):
+        source_object.id = uuid.uuid4()
+        source_object.created_at = now
+        source_object.updated_at = now
+
+    db.refresh.side_effect = populate_created_source_object
+
+    def override_authentication():
+        return AuthenticatedSession(
+            user=user,
+            token="source-object-create-allowed-test-only-token",
+        )
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[require_authenticated_session] = (
+        override_authentication
+    )
+    app.dependency_overrides[get_db] = override_get_db
+
+    try:
+        with TestClient(app) as test_client:
+            response = test_client.post(
+                "/api/v1/source-objects",
+                json={
+                    "data_source_id": str(data_source_id),
+                    "object_type": "table",
+                    "object_name": "customers",
+                    "catalog_name": "analytics",
+                    "schema_name": "sales",
+                    "native_name": "analytics.sales.customers",
+                    "description": None,
+                    "row_count": None,
+                },
+            )
+    finally:
+        app.dependency_overrides.pop(require_authenticated_session, None)
+        app.dependency_overrides.pop(get_db, None)
+
+    assert response.status_code == 201
+    db.add.assert_called_once()
+    db.commit.assert_called_once()
+
+    created = db.add.call_args.args[0]
+    assert created.data_source_id == data_source_id
+    assert created.object_name == "customers"
+    assert created.catalog_name == "analytics"
+    assert created.schema_name == "sales"
+    assert created.native_name == "analytics.sales.customers"
+
+    body = response.json()
+    assert body["object_name"] == "customers"
+    assert body["catalog_name"] == "analytics"
+    assert body["schema_name"] == "sales"
+    assert body["native_name"] == "analytics.sales.customers"

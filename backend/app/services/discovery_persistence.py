@@ -23,6 +23,7 @@ def persist_discovered_object(
         select(SourceObject).where(
             SourceObject.data_source_id == data_source.id,
             SourceObject.object_name == discovered.object_name,
+            SourceObject.catalog_name == discovered.catalog_name,
             SourceObject.schema_name == discovered.schema_name,
         )
     )
@@ -32,6 +33,7 @@ def persist_discovered_object(
             data_source_id=data_source.id,
             object_type=discovered.object_type,
             object_name=discovered.object_name,
+            catalog_name=discovered.catalog_name,
             schema_name=discovered.schema_name,
             native_name=discovered.native_name,
             row_count=discovered.row_count,
@@ -42,6 +44,7 @@ def persist_discovered_object(
 
     else:
         source_object.object_type = discovered.object_type
+        source_object.catalog_name = discovered.catalog_name
         source_object.schema_name = discovered.schema_name
         source_object.native_name = discovered.native_name
         source_object.row_count = discovered.row_count

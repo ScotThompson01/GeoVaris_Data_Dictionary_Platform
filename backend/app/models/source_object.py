@@ -13,8 +13,11 @@ class SourceObject(Base):
     __table_args__ = (
         UniqueConstraint(
             "data_source_id",
+            "catalog_name",
+            "schema_name",
             "object_name",
-            name="uq_source_objects_source_name",
+            name="uq_source_objects_namespace_name",
+            postgresql_nulls_not_distinct=True,
         ),
     )
 
@@ -39,6 +42,11 @@ class SourceObject(Base):
     object_name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
+    )
+
+    catalog_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
     )
 
     schema_name: Mapped[str | None] = mapped_column(
@@ -83,4 +91,3 @@ class SourceObject(Base):
         back_populates="source_object",
         cascade="all, delete-orphan",
     )
-
