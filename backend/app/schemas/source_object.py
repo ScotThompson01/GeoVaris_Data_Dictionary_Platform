@@ -17,6 +17,7 @@ class SourceObjectCreate(BaseModel):
     data_source_id: uuid.UUID
     object_type: ObjectType
     object_name: str = Field(min_length=1, max_length=255)
+    catalog_name: str | None = None
     schema_name: str | None = None
     native_name: str | None = None
     description: str | None = None
@@ -28,6 +29,7 @@ class SourceObjectRead(BaseModel):
     data_source_id: uuid.UUID
     object_type: str
     object_name: str
+    catalog_name: str | None
     schema_name: str | None
     native_name: str | None
     description: str | None

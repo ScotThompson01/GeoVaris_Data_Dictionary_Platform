@@ -96,6 +96,7 @@ def _build_dictionary_export_statement() -> Select:
         select(
             DataSource.name.label("data_source_name"),
             DataSource.source_type,
+            SourceObject.catalog_name,
             SourceObject.schema_name,
             SourceObject.object_name,
             SourceObject.object_type,
@@ -191,6 +192,7 @@ def _build_xlsx_export(rows: list[dict]) -> bytes:
 DICTIONARY_EXPORT_COLUMNS = (
     ("data_source_name", "Data Source"),
     ("source_type", "Source Type"),
+    ("catalog_name", "Catalog"),
     ("schema_name", "Schema"),
     ("object_name", "Object"),
     ("object_type", "Object Type"),
@@ -263,6 +265,7 @@ def list_dictionary_fields(
             SourceObject.id.label("source_object_id"),
             SourceObject.object_name,
             SourceObject.object_type,
+            SourceObject.catalog_name,
             SourceObject.schema_name,
             SourceObject.native_name,
             SourceObject.description.label("object_description"),

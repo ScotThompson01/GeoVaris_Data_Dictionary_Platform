@@ -87,6 +87,7 @@ def create_source_object(
         data_source_id=payload.data_source_id,
         object_type=payload.object_type,
         object_name=payload.object_name.strip(),
+        catalog_name=payload.catalog_name,
         schema_name=payload.schema_name,
         native_name=payload.native_name,
         description=payload.description,

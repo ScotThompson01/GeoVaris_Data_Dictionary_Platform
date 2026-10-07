@@ -23,6 +23,7 @@ class DictionaryFieldRead(BaseModel):
     source_object_id: uuid.UUID
     object_name: str
     object_type: str
+    catalog_name: str | None
     schema_name: str | None
     native_name: str | None
     object_description: str | None

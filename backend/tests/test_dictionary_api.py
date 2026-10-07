@@ -191,6 +191,7 @@ def test_dictionary_returns_discovered_technical_metadata():
         "source_object_id": source_object_id,
         "object_name": "customers",
         "object_type": "table",
+        "catalog_name": None,
         "schema_name": "public",
         "native_name": "public.customers",
         "object_description": "Customer master data",
@@ -224,6 +225,7 @@ def test_dictionary_returns_discovered_technical_metadata():
         assert field["numeric_scale"] is None
         assert field["default_value"] == "'UNKNOWN'"
         assert field["source_comment"] == "External customer code"
+        assert field["catalog_name"] is None
         assert field["schema_name"] == "public"
         assert field["native_name"] == "public.customers"
         assert field["object_description"] == "Customer master data"
@@ -258,6 +260,7 @@ def test_dictionary_export_csv_returns_metadata_and_protects_formulas():
     row = {
         "data_source_name": "Customer PostgreSQL",
         "source_type": "postgresql",
+        "catalog_name": None,
         "schema_name": "public",
         "object_name": "customers",
         "object_type": "table",
@@ -319,10 +322,12 @@ def test_dictionary_export_csv_returns_metadata_and_protects_formulas():
         assert rows[0][0] == "Data Source"
         assert rows[0][-1] == "Notes"
         assert rows[1][0] == "Customer PostgreSQL"
-        assert rows[1][8] == "customer_code"
-        assert rows[1][21] == "'=HYPERLINK(\"https://example.invalid\")"
-        assert rows[1][27] == "True"
-        assert rows[1][29] == "draft"
+        assert rows[0][2] == "Catalog"
+        assert rows[1][2] == ""
+        assert rows[1][9] == "customer_code"
+        assert rows[1][22] == "'=HYPERLINK(\"https://example.invalid\")"
+        assert rows[1][28] == "True"
+        assert rows[1][30] == "draft"
     finally:
         app.dependency_overrides.pop(get_db, None)
 
@@ -335,6 +340,7 @@ def test_dictionary_export_xlsx_returns_valid_workbook():
     row = {
         "data_source_name": "Customer PostgreSQL",
         "source_type": "postgresql",
+        "catalog_name": None,
         "schema_name": "public",
         "object_name": "customers",
         "object_type": "table",
@@ -402,10 +408,12 @@ def test_dictionary_export_xlsx_returns_valid_workbook():
         assert rows[0][0] == "Data Source"
         assert rows[0][-1] == "Notes"
         assert rows[1][0] == "Customer PostgreSQL"
-        assert rows[1][8] == "customer_code"
-        assert rows[1][21] == "'=1+1"
-        assert rows[1][27] is True
-        assert rows[1][29] == "draft"
+        assert rows[0][2] == "Catalog"
+        assert rows[1][2] is None
+        assert rows[1][9] == "customer_code"
+        assert rows[1][22] == "'=1+1"
+        assert rows[1][28] is True
+        assert rows[1][30] == "draft"
     finally:
         app.dependency_overrides.pop(get_db, None)
 
