@@ -1,4 +1,4 @@
-"""GeoVaris FastAPI application and route registration."""
+﻿"""GeoVaris FastAPI application and route registration."""
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +12,7 @@ from app.api.routes import (
     dictionary,
     discovery,
     field_governance,
+    governance_directory,
     health,
     profiling_results,
     projects,
@@ -122,6 +123,12 @@ app.include_router(
     dependencies=protected_dependencies,
 )
 
+app.include_router(
+    governance_directory.router,
+    prefix="/api/v1/clients",
+    tags=["Governance Directory"],
+    dependencies=protected_dependencies,
+)
 # Installation administrator endpoints.
 app.include_router(
     user_management.router,

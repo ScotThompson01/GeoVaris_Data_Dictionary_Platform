@@ -9,6 +9,9 @@ from app.models.data_field import DataField
 from app.models.profiling_result import ProfilingResult
 from app.models.field_governance_metadata import FieldGovernanceMetadata
 from app.models.user import User
+from app.models.governance_person import GovernancePerson
+from app.models.governance_department import GovernanceDepartment
+from app.models.governance_assignment import GovernanceAssignment
 
 __all__ = [
     "Client",
@@ -22,4 +25,7 @@ __all__ = [
     "ProfilingResult",
     "FieldGovernanceMetadata",
     "User",
+    "GovernancePerson",
+    "GovernanceDepartment",
+    "GovernanceAssignment",
 ]

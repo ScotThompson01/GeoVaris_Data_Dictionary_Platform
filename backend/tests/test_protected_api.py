@@ -1,4 +1,4 @@
-"""HTTP-level checks that data routes reject unauthenticated requests."""
+﻿"""HTTP-level checks that data routes reject unauthenticated requests."""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,6 +13,11 @@ client = TestClient(app)
     ("method", "path"),
     [
         ("GET", "/api/v1/clients"),
+        ("GET", "/api/v1/clients/00000000-0000-0000-0000-000000000000/governance/people"),
+        ("POST", "/api/v1/clients/00000000-0000-0000-0000-000000000000/governance/people"),
+        ("GET", "/api/v1/clients/00000000-0000-0000-0000-000000000000/governance/departments"),
+        ("POST", "/api/v1/clients/00000000-0000-0000-0000-000000000000/governance/departments"),
+        ("GET", "/api/v1/clients/00000000-0000-0000-0000-000000000000/governance/assignments"),
         ("GET", "/api/v1/user-management"),
         ("POST", "/api/v1/clients"),
         ("GET", "/api/v1/projects"),

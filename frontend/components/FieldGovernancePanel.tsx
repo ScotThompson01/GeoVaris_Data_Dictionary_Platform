@@ -4,23 +4,31 @@ import { FormEvent, useEffect, useState } from "react";
 
 import {
   getFieldGovernance,
+  getGovernanceAssignments,
+  getGovernanceDepartments,
+  getGovernancePeople,
   saveFieldGovernance,
 } from "../lib/api";
 
 import type {
   DictionaryField,
   FieldGovernanceMetadata,
+  GovernanceAssignment,
+  GovernanceDepartment,
+  GovernancePerson,
 } from "../lib/types";
 
 
 type Props = {
   field: DictionaryField;
+  clientId: string;
   onClose: () => void;
 };
 
 
 export default function FieldGovernancePanel({
   field,
+  clientId,
   onClose,
 }: Props) {
   const [form, setForm] = useState<FieldGovernanceMetadata | null>(
@@ -30,6 +38,13 @@ export default function FieldGovernancePanel({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [assignments, setAssignments] = useState<GovernanceAssignment[]>([]);
+  const [people, setPeople] = useState<GovernancePerson[]>([]);
+  const [departments, setDepartments] = useState<GovernanceDepartment[]>([]);
+  const [directoryLoading, setDirectoryLoading] = useState(false);
+  const [directoryError, setDirectoryError] = useState("");
+  const [stewardAssignmentChanged, setStewardAssignmentChanged] =
+    useState(false);
 
   useEffect(() => {
     async function load() {
@@ -42,6 +57,7 @@ export default function FieldGovernancePanel({
         );
 
         setForm(result);
+        setStewardAssignmentChanged(false);
       } catch {
         setMessage(
           "Unable to load governance metadata.",
@@ -53,6 +69,77 @@ export default function FieldGovernancePanel({
 
     load();
   }, [field.field_id]);
+
+  useEffect(() => {
+    let active = true;
+
+    setAssignments([]);
+    setPeople([]);
+    setDepartments([]);
+    setDirectoryError("");
+
+    if (!clientId) {
+      setDirectoryLoading(false);
+      return;
+    }
+
+    setDirectoryLoading(true);
+
+    async function loadDirectory() {
+      try {
+        const [assignmentResults, peopleResults, departmentResults] =
+          await Promise.all([
+            getGovernanceAssignments(clientId),
+            getGovernancePeople(clientId),
+            getGovernanceDepartments(clientId),
+          ]);
+
+        if (active) {
+          setAssignments(assignmentResults);
+          setPeople(peopleResults);
+          setDepartments(departmentResults);
+        }
+      } catch {
+        if (active) {
+          setDirectoryError("Unable to load the Governance Directory.");
+        }
+      } finally {
+        if (active) {
+          setDirectoryLoading(false);
+        }
+      }
+    }
+
+    void loadDirectory();
+
+    return () => {
+      active = false;
+    };
+  }, [clientId]);
+
+  const today = new Date().toLocaleDateString("en-CA");
+
+  const eligibleStewards = assignments.filter((assignment) => {
+    if (assignment.client_id !== clientId ||
+        assignment.role !== "data_steward" ||
+        !assignment.is_active ||
+        (assignment.effective_start && assignment.effective_start > today) ||
+        (assignment.effective_end && assignment.effective_end < today)) {
+      return false;
+    }
+
+    const person = people.find(
+      (item) => item.id === assignment.person_id &&
+        item.client_id === clientId && item.is_active,
+    );
+
+    const department = departments.find(
+      (item) => item.id === assignment.department_id &&
+        item.client_id === clientId && item.is_active,
+    );
+
+    return Boolean(person && department);
+  });
 
   function update(
     key: keyof FieldGovernanceMetadata,
@@ -89,6 +176,9 @@ export default function FieldGovernancePanel({
           department: form.department,
           data_owner: form.data_owner,
           data_steward: form.data_steward,
+          ...(stewardAssignmentChanged
+            ? { steward_assignment_id: form.steward_assignment_id }
+            : {}),
           business_process: form.business_process,
           system_of_record: form.system_of_record,
           is_cde: form.is_cde,
@@ -99,6 +189,7 @@ export default function FieldGovernancePanel({
       );
 
       setForm(result);
+      setStewardAssignmentChanged(false);
       setMessage("Governance metadata saved.");
     } catch {
       setMessage(
@@ -228,6 +319,62 @@ export default function FieldGovernancePanel({
                   )
                 }
               />
+            </label>
+
+            <label>
+              Assigned Data Steward
+              <select
+                value={form.steward_assignment_id ?? ""}
+                onChange={(event) => {
+                  setStewardAssignmentChanged(true);
+                  setForm((current) =>
+                    current
+                      ? {
+                          ...current,
+                          steward_assignment_id:
+                            event.target.value || null,
+                        }
+                      : current,
+                  );
+                }}
+                disabled={saving || directoryLoading || Boolean(directoryError) || !clientId}
+              >
+                <option value="">No directory assignment</option>
+                {form.steward_assignment_id &&
+                  !eligibleStewards.some(
+                    (item) => item.id === form.steward_assignment_id,
+                  ) && (
+                    <option value={form.steward_assignment_id} disabled>
+                      Current assignment (no longer eligible or unavailable)
+                    </option>
+                  )}
+                {eligibleStewards.map((assignment) => {
+                  const person = people.find(
+                    (item) => item.id === assignment.person_id,
+                  );
+                  const department = departments.find(
+                    (item) => item.id === assignment.department_id,
+                  );
+
+                  return (
+                    <option key={assignment.id} value={assignment.id}>
+                      {person?.full_name ?? "Unknown person"}
+                      {" ? "}
+                      {department?.name ?? "Unknown department"}
+                    </option>
+                  );
+                })}
+              </select>
+              {directoryLoading && (
+                <span className="field-subtext">
+                  Loading directory assignments...
+                </span>
+              )}
+              {directoryError && (
+                <span className="field-subtext">
+                  {directoryError}
+                </span>
+              )}
             </label>
 
             <label>

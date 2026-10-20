@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Sidebar from "./Sidebar";
+import { InstallationAdminProvider } from "./InstallationAdminContext";
 
 export default function AppShell({
   children,
@@ -9,9 +10,11 @@ export default function AppShell({
   isInstallationAdmin: boolean;
 }) {
   return (
-    <div className="shell">
-      <Sidebar isInstallationAdmin={isInstallationAdmin} />
-      <main>{children}</main>
-    </div>
+    <InstallationAdminProvider isInstallationAdmin={isInstallationAdmin}>
+      <div className="shell">
+        <Sidebar isInstallationAdmin={isInstallationAdmin} />
+        <main>{children}</main>
+      </div>
+    </InstallationAdminProvider>
   );
 }
