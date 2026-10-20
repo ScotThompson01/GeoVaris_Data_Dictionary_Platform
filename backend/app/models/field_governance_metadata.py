@@ -1,4 +1,4 @@
-import uuid
+﻿import uuid
 from datetime import datetime
 
 from sqlalchemy import (
@@ -60,6 +60,13 @@ class FieldGovernanceMetadata(Base):
         nullable=True,
     )
 
+    steward_assignment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("governance_assignments.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+
     business_process: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
@@ -111,4 +118,3 @@ class FieldGovernanceMetadata(Base):
         "DataField",
         back_populates="governance_metadata",
     )
-    

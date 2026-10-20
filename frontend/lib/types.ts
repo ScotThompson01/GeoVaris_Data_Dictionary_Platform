@@ -44,6 +44,7 @@ export type FieldGovernanceMetadata = {
   department: string | null;
   data_owner: string | null;
   data_steward: string | null;
+  steward_assignment_id: string | null;
   business_process: string | null;
   system_of_record: string | null;
 
@@ -62,6 +63,7 @@ export type FieldGovernanceUpdate = {
   department?: string | null;
   data_owner?: string | null;
   data_steward?: string | null;
+  steward_assignment_id?: string | null;
   business_process?: string | null;
   system_of_record?: string | null;
 
@@ -102,4 +104,34 @@ export type DataSource = {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type GovernanceAssignment = {
+  id: string;
+  client_id: string;
+  person_id: string;
+  department_id: string;
+  role: string;
+  effective_start: string | null;
+  effective_end: string | null;
+  is_active: boolean;
+};
+
+export type GovernancePerson = {
+  id: string;
+  client_id: string;
+  full_name: string;
+  job_title: string | null;
+  business_email: string | null;
+  phone: string | null;
+  contact_url: string | null;
+  is_active: boolean;
+};
+
+export type GovernanceDepartment = {
+  id: string;
+  client_id: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
 };

@@ -531,6 +531,11 @@ export default function DictionaryPage() {
 
             <FieldGovernancePanel
               field={selectedField}
+              clientId={
+                projects.find(
+                  (project) => project.id === selectedProjectId,
+                )?.client_id ?? ""
+              }
               onClose={() => setSelectedField(null)}
             />
           </div>

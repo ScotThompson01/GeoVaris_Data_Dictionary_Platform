@@ -1,5 +1,8 @@
 
 import type {
+  GovernancePerson,
+  GovernanceDepartment,
+  GovernanceAssignment,
   Client,
   DataSource,
   DictionaryField,
@@ -325,5 +328,93 @@ export async function discoverDatabase(
       },
       body: JSON.stringify(request),
     }),
+  );
+}
+
+export async function getGovernanceAssignments(
+  clientId: string,
+): Promise<GovernanceAssignment[]> {
+  return parse<GovernanceAssignment[]>(
+    await fetch(
+      `/api/data/governance/${encodeURIComponent(clientId)}/assignments`,
+      {
+        credentials: "same-origin",
+        cache: "no-store",
+      },
+    ),
+  );
+}
+
+export async function getGovernancePeople(
+  clientId: string,
+): Promise<GovernancePerson[]> {
+  return parse<GovernancePerson[]>(
+    await fetch(
+      `/api/data/governance/${encodeURIComponent(clientId)}/people`,
+      {
+        credentials: "same-origin",
+        cache: "no-store",
+      },
+    ),
+  );
+}
+
+export async function createGovernancePerson(
+  clientId: string,
+  payload: {
+    full_name: string;
+    job_title?: string | null;
+    business_email?: string | null;
+    phone?: string | null;
+    contact_url?: string | null;
+  },
+): Promise<GovernancePerson> {
+  return parse<GovernancePerson>(
+    await fetch(
+      `/api/data/governance/${encodeURIComponent(clientId)}/people`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      },
+    ),
+  );
+}
+
+export async function getGovernanceDepartments(
+  clientId: string,
+): Promise<GovernanceDepartment[]> {
+  return parse<GovernanceDepartment[]>(
+    await fetch(
+      `/api/data/governance/${encodeURIComponent(clientId)}/departments`,
+      {
+        credentials: "same-origin",
+        cache: "no-store",
+      },
+    ),
+  );
+}
+
+export async function createGovernanceDepartment(
+  clientId: string,
+  payload: { name: string; description?: string | null },
+): Promise<GovernanceDepartment> {
+  return parse<GovernanceDepartment>(
+    await fetch(
+      `/api/data/governance/${encodeURIComponent(clientId)}/departments`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      },
+    ),
   );
 }

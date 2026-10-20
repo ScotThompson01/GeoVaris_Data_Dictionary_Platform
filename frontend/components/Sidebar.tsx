@@ -1,4 +1,4 @@
-﻿
+
 "use client";
 
 import { useState } from "react";
@@ -61,6 +61,7 @@ export default function Sidebar({ isInstallationAdmin }: { isInstallationAdmin: 
         <Link className="sidebar-nav-link" href="/projects">Projects</Link>
         <Link className="sidebar-nav-link" href="/data-sources">Data Sources</Link>
         <Link className="sidebar-nav-link" href="/dictionary">Data Dictionary</Link>
+        <Link className="sidebar-nav-link" href="/governance-directory">Governance Directory</Link>
         {isInstallationAdmin && (
           <Link className="sidebar-nav-link" href="/user-management">User Management</Link>
         )}

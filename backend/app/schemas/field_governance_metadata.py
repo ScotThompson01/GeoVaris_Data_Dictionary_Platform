@@ -56,6 +56,8 @@ class FieldGovernanceMetadataCreate(BaseModel):
 
 
 class FieldGovernanceMetadataUpdate(BaseModel):
+    steward_assignment_id: uuid.UUID | None = None
+
     business_name: str | None = Field(
         default=None,
         max_length=255,
@@ -121,6 +123,8 @@ class FieldGovernanceMetadataRead(BaseModel):
 
 
 class FieldGovernanceMetadataView(BaseModel):
+    steward_assignment_id: uuid.UUID | None = None
+
     id: uuid.UUID | None = None
     data_field_id: uuid.UUID
 
