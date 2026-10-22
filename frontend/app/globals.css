@@ -741,3 +741,31 @@ th {
         grid-template-columns: 1fr;
     }
 }
+
+.governance-directory { display: grid; gap: 20px; min-width: 0; }
+
+.governance-directory .form { width: 100%; max-width: 680px; gap: 18px; margin-top: 20px; }
+
+.governance-directory .form input, .governance-directory .form select, .governance-directory .form textarea { width: 100%; min-height: 42px; background: #fff; }
+
+.governance-directory table { margin-top: 16px; font-size: 14px; } .governance-directory th, .governance-directory td { padding: 12px 14px; text-align: left; vertical-align: middle; } .governance-directory th { color: var(--muted); background: #f6f8fc; font-weight: 700; } .governance-directory tbody tr:hover { background: #f8f5ff; }
+
+.governance-org-chart { display: grid; gap: 20px; min-width: 0; } .org-chart-departments { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 20px; } .org-chart-department { border-top: 4px solid var(--p); } .org-chart-team { display: grid; gap: 12px; margin-top: 20px; } .org-chart-member { display: grid; gap: 5px; padding: 14px; border: 1px solid var(--line); border-left: 3px solid var(--b); border-radius: 10px; background: #f8faff; } .org-chart-member span { color: var(--p); font-weight: 650; text-transform: capitalize; } .org-chart-member small { color: var(--muted); }
+
+/* Governance accountability hierarchy */
+.org-chart-corporate { display: flex; justify-content: center; position: relative; padding-bottom: 28px; }
+.org-chart-corporate > .org-chart-department { width: min(100%, 480px); border-top: 5px solid var(--p); }
+.org-chart-corporate::after { content: ''; position: absolute; bottom: 0; left: 50%; height: 28px; border-left: 3px solid var(--b); }
+
+
+/* Governance Org Chart contact details */
+.org-chart-contact-link { appearance: none; border: 0; background: transparent; padding: 0; color: var(--p); font: inherit; font-weight: 700; text-align: left; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.org-chart-contact-link:hover { color: var(--b); }
+.org-chart-contact-link:focus-visible { outline: 2px solid var(--b); outline-offset: 4px; border-radius: 3px; }
+.org-chart-contact-panel { border-top: 4px solid var(--p); }
+.org-chart-contact-panel h2 { margin: 0 0 16px; color: var(--p); }
+.org-chart-contact-panel p { margin: 8px 0; overflow-wrap: anywhere; }
+.org-chart-contact-panel a { color: var(--b); }
+.org-chart-contact-close { float: right; padding: 8px 16px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--p); cursor: pointer; font-weight: 600; }
+.org-chart-contact-close:hover { background: #f3edff; }
+

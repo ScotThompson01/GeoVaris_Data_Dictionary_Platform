@@ -1,8 +1,8 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
-import { createGovernanceDepartment, createGovernancePerson, getClients, getGovernanceDepartments, getGovernancePeople } from "../../../lib/api";
-import type { Client, GovernanceDepartment, GovernancePerson } from "../../../lib/types";
+import { createGovernanceAssignment, createGovernanceDepartment, createGovernancePerson, getClients, getGovernanceAssignments, getGovernanceDepartments, getGovernancePeople } from "../../../lib/api";
+import type { Client, GovernanceAssignment, GovernanceDepartment, GovernancePerson } from "../../../lib/types";
 import { useInstallationAdmin } from "../../../components/InstallationAdminContext";
 
 export default function GovernanceDirectoryPage() {
@@ -10,6 +10,17 @@ export default function GovernanceDirectoryPage() {
   const [clientId, setClientId] = useState("");
   const [departments, setDepartments] = useState<GovernanceDepartment[]>([]);
   const [people, setPeople] = useState<GovernancePerson[]>([]);
+  const [assignments, setAssignments] = useState<GovernanceAssignment[]>([]);
+  const [loadingAssignments, setLoadingAssignments] = useState(false);
+  const [assignmentsError, setAssignmentsError] = useState("");
+  const [assignmentPersonId, setAssignmentPersonId] = useState("");
+  const [assignmentDepartmentId, setAssignmentDepartmentId] = useState("");
+  const [assignmentRole, setAssignmentRole] = useState("data_steward");
+  const [assignmentStartDate, setAssignmentStartDate] = useState("");
+  const [assignmentEndDate, setAssignmentEndDate] = useState("");
+  const [savingAssignment, setSavingAssignment] = useState(false);
+  const [assignmentFormError, setAssignmentFormError] = useState("");
+  const [assignmentFormSuccess, setAssignmentFormSuccess] = useState("");
   const [loadingPeople, setLoadingPeople] = useState(false);
   const [peopleError, setPeopleError] = useState("");
   const [loadingClients, setLoadingClients] = useState(true);
@@ -107,6 +118,92 @@ export default function GovernanceDirectoryPage() {
     };
   }, [clientId]);
 
+  useEffect(() => {
+    if (!clientId) {
+      setAssignments([]);
+      setAssignmentsError("");
+      setLoadingAssignments(false);
+      return;
+    }
+
+    let cancelled = false;
+    setAssignments([]);
+    setAssignmentsError("");
+    setLoadingAssignments(true);
+
+    getGovernanceAssignments(clientId)
+      .then((items) => {
+        if (!cancelled) setAssignments(items);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAssignmentsError("Unable to load governance assignments for this client.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingAssignments(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId]);
+  async function handleCreateAssignment(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!isInstallationAdmin || !clientId || savingAssignment) return;
+
+    setAssignmentFormError("");
+    setAssignmentFormSuccess("");
+
+    if (!people.some((person) => person.id === assignmentPersonId && person.is_active)) {
+      setAssignmentFormError("Select an active governance contact.");
+      return;
+    }
+
+    if (!departments.some((department) => department.id === assignmentDepartmentId && department.is_active)) {
+      setAssignmentFormError("Select an active department.");
+      return;
+    }
+
+    if (!["executive_accountable_owner", "department_data_owner", "data_steward"].includes(assignmentRole)) {
+      setAssignmentFormError("Select a valid governance role.");
+      return;
+    }
+
+    if (assignmentStartDate && assignmentEndDate && assignmentEndDate < assignmentStartDate) {
+      setAssignmentFormError("Effective end date cannot be before the start date.");
+      return;
+    }
+
+    const requestedClientId = clientId;
+    setSavingAssignment(true);
+
+    try {
+      await createGovernanceAssignment(requestedClientId, {
+        person_id: assignmentPersonId,
+        department_id: assignmentDepartmentId,
+        role: assignmentRole as "executive_accountable_owner" | "department_data_owner" | "data_steward",
+        effective_start: assignmentStartDate || null,
+        effective_end: assignmentEndDate || null,
+      });
+
+      const updated = await getGovernanceAssignments(requestedClientId);
+      setAssignments(updated);
+      setAssignmentPersonId("");
+      setAssignmentDepartmentId("");
+      setAssignmentRole("data_steward");
+      setAssignmentStartDate("");
+      setAssignmentEndDate("");
+      setAssignmentFormSuccess("Governance role assignment created successfully.");
+    } catch (error) {
+      setAssignmentFormError(
+        error instanceof Error ? error.message : "Unable to create governance role assignment.",
+      );
+    } finally {
+      setSavingAssignment(false);
+    }
+  }
   async function handleCreatePerson(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -212,7 +309,7 @@ export default function GovernanceDirectoryPage() {
   }
 
   return (
-    <>
+    <div className="governance-directory">
       <header>
         <div>
           <h1>Governance Directory</h1>
@@ -310,12 +407,50 @@ export default function GovernanceDirectoryPage() {
         )}
       </section>
 
+      <section className="card">
+        <h3>Governance Role Assignments</h3>
+        <p>People assigned to governance responsibilities for the selected client.</p>
+
+        {loadingAssignments && <p>Loading assignments...</p>}
+        {assignmentsError && <p role="alert">{assignmentsError}</p>}
+
+        {!loadingAssignments && !assignmentsError && clientId && (
+          assignments.length === 0 ? (
+            <p>No governance role assignments have been added for this client yet.</p>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Person</th>
+                  <th>Department</th>
+                  <th>Governance role</th>
+                  <th>Effective start</th>
+                  <th>Effective end</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {assignments.map((assignment) => (
+                  <tr key={assignment.id}>
+                    <td>{people.find((person) => person.id === assignment.person_id)?.full_name ?? "Unknown person"}</td>
+                    <td>{departments.find((department) => department.id === assignment.department_id)?.name ?? "Unknown department"}</td>
+                    <td>{assignment.role.replaceAll("_", " ")}</td>
+                    <td>{assignment.effective_start ?? "Not set"}</td>
+                    <td>{assignment.effective_end ?? "Not set"}</td>
+                    <td>{assignment.is_active ? "Active" : "Inactive"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )
+        )}
+      </section>
       {isInstallationAdmin && clientId && (
         <section className="card">
           <h3>Add Governance Contact</h3>
           <p>Register a person responsible for governance. This does not create a login account.</p>
 
-          <form onSubmit={handleCreatePerson}>
+          <form className="form" onSubmit={handleCreatePerson}>
             <div>
               <label htmlFor="person-full-name">Full name</label>
               <input id="person-full-name" value={personName} onChange={(event) => setPersonName(event.target.value)} maxLength={255} required disabled={creatingPerson} />
@@ -345,12 +480,13 @@ export default function GovernanceDirectoryPage() {
         </section>
       )}
 
+
       {isInstallationAdmin && clientId && (
         <section className="card">
           <h3>Create Department</h3>
           <p>Register a department for the selected client.</p>
 
-          <form onSubmit={handleCreateDepartment}>
+          <form className="form" onSubmit={handleCreateDepartment}>
             <div>
               <label htmlFor="department-name">Department name</label>
               <input
@@ -384,6 +520,55 @@ export default function GovernanceDirectoryPage() {
           </form>
         </section>
       )}
-    </>
+      {isInstallationAdmin && clientId && (
+        <section className="card">
+          <h3>Create Governance Role Assignment</h3>
+          <p>Assign an active governance contact to a department and governance role.</p>
+
+          <form className="form" onSubmit={handleCreateAssignment}>
+            <div>
+              <label htmlFor="assignment-person">Governance contact</label>
+              <select id="assignment-person" value={assignmentPersonId} onChange={(event) => setAssignmentPersonId(event.target.value)} required disabled={savingAssignment}>
+                <option value="">Select a person</option>
+                {people.filter((person) => person.is_active).map((person) => (
+                  <option key={person.id} value={person.id}>{person.full_name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="assignment-department">Department</label>
+              <select id="assignment-department" value={assignmentDepartmentId} onChange={(event) => setAssignmentDepartmentId(event.target.value)} required disabled={savingAssignment}>
+                <option value="">Select a department</option>
+                {departments.filter((department) => department.is_active).map((department) => (
+                  <option key={department.id} value={department.id}>{department.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label htmlFor="assignment-role">Governance role</label>
+              <select id="assignment-role" value={assignmentRole} onChange={(event) => setAssignmentRole(event.target.value)} required disabled={savingAssignment}>
+                <option value="executive_accountable_owner">Corporate Data Owner</option>
+                <option value="department_data_owner">Department Data Owner</option>
+                <option value="data_steward">Data Steward</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="assignment-start">Effective start (optional)</label>
+              <input id="assignment-start" type="date" value={assignmentStartDate} onChange={(event) => setAssignmentStartDate(event.target.value)} disabled={savingAssignment} />
+            </div>
+            <div>
+              <label htmlFor="assignment-end">Effective end (optional)</label>
+              <input id="assignment-end" type="date" value={assignmentEndDate} onChange={(event) => setAssignmentEndDate(event.target.value)} disabled={savingAssignment} />
+            </div>
+            <button type="submit" disabled={savingAssignment || loadingPeople || loadingDepartments || people.every((person) => !person.is_active) || departments.every((department) => !department.is_active)}>
+              {savingAssignment ? "Creating..." : "Create Role Assignment"}
+            </button>
+            {assignmentFormError && <p role="alert">{assignmentFormError}</p>}
+            {assignmentFormSuccess && <p role="status">{assignmentFormSuccess}</p>}
+          </form>
+        </section>
+      )}
+    </div>
   );
 }
+
