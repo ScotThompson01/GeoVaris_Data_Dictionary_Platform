@@ -418,3 +418,32 @@ export async function createGovernanceDepartment(
     ),
   );
 }
+
+export async function createGovernanceAssignment(
+  clientId: string,
+  payload: {
+    person_id: string;
+    department_id: string;
+    role:
+      | "executive_accountable_owner"
+      | "department_data_owner"
+      | "data_steward";
+    effective_start?: string | null;
+    effective_end?: string | null;
+  },
+): Promise<GovernanceAssignment> {
+  return parse<GovernanceAssignment>(
+    await fetch(
+      `/api/data/governance/${encodeURIComponent(clientId)}/assignments`,
+      {
+        method: "POST",
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      },
+    ),
+  );
+}
