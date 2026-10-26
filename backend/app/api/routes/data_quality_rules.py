@@ -71,6 +71,7 @@ def create_draft_range_rule(
         id=uuid.uuid4(),
         rule_id=rule.id,
         version_number=1,
+        created_by_user_id=session.user.id,
         rule_type=payload.rule_type,
         quality_dimension=payload.quality_dimension,
         min_value=payload.min_value,
