@@ -1,4 +1,4 @@
-﻿"""Inventory of API routes requiring an authentication decision.
+"""Inventory of API routes requiring an authentication decision.
 
 This test does not enforce authentication. It makes new application
 routes visible during development so their security requirements
@@ -25,6 +25,7 @@ PROTECTED_PATHS = {
     "/api/v1/clients/{client_id}/governance/assignments",
     "/api/v1/projects",
     "/api/v1/projects/{project_id}",
+    "/api/v1/projects/{project_id}/settings",
     "/api/v1/data-sources",
     "/api/v1/data-sources/{data_source_id}",
     "/api/v1/scans",
@@ -42,6 +43,7 @@ PROTECTED_PATHS = {
     "/api/v1/dictionary",
     "/api/v1/dictionary/export",
     "/api/v1/field-governance/{data_field_id}",
+    "/api/v1/data-quality-rules",
 }
 
 

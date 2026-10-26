@@ -64,7 +64,10 @@ export default function Sidebar({ isInstallationAdmin }: { isInstallationAdmin: 
         <Link className="sidebar-nav-link" href="/governance-directory">Governance Directory</Link>
         <Link className="sidebar-nav-link" href="/governance-org-chart">Governance Org Chart</Link>
         {isInstallationAdmin && (
-          <Link className="sidebar-nav-link" href="/user-management">User Management</Link>
+          <>
+            <Link className="sidebar-nav-link" href="/user-management">User Management</Link>
+            <Link className="sidebar-nav-link" href="/administration">Administration</Link>
+          </>
         )}
         <div className="disabled">
           Data Quality <small>Soon</small>

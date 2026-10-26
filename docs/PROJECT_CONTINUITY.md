@@ -765,3 +765,41 @@ The goal is to help organizations move from:
 **Discover → Define → Standardize → Measure → Govern → Improve**
 
 while keeping client data under client control.
+
+---
+
+# 22. Development Update — 22 October 2026
+
+## Phase 4B — Governance Directory and Org Chart
+Core functionality implemented and browser-validated: governance contacts, departments, role assignments, corporate hierarchy, department organization, contact detail panels, unassigned-role identification, and navigation.
+
+## Validation
+- Backend: 44 test files executed individually; 222 passed, 0 failed, 6 skipped.
+- Frontend: Docker production build passed; container recreated successfully.
+- Authentication: HTTP 307 redirect to /sign-in verified; browser sign-in and dashboard passed.
+- Governance Directory: all five browser checks passed.
+- Governance Org Chart: all five browser checks passed.
+- Skipped integration tests require an isolated test database.
+
+## Current Development Status
+- Phases 1-3: Core foundation and discovery capabilities implemented.
+- Phase 4: Data Dictionary substantially implemented; remaining validation required.
+- Phase 4B: Core Governance Directory and Org Chart functionality validated.
+- Phase 5: Data Quality implementation audit is the next development priority.
+- Later phases: Follow the roadmap and verify existing functionality before implementation.
+
+## Immediate Next Steps
+1. Inventory existing Data Quality models, APIs, rule execution, scoring, and frontend functionality.
+2. Identify implementation gaps and security dependencies.
+3. Select the smallest logical development task.
+4. Validate with synthetic test data.
+5. Complete outstanding integration testing using an isolated database.
+
+## Development Safety
+- Current working branch last reported as feature/0.4b-governance-directory; verify before Git operations.
+- Do not commit, push, merge, or update GitHub without explicit authorization.
+- Do not use --remove-orphans without reviewing isolated test services.
+- Continue providing one PowerShell command at a time.
+
+## Session Reference
+See docs/SESSION_HANDOFF_2026-10-22.md for the current development handoff.
