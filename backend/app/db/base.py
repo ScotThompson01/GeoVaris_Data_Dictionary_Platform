@@ -1,4 +1,5 @@
-﻿from app.models.client import Client
+from app.models.audit_event import AuditEvent
+from app.models.client import Client
 from app.models.client_access import ClientAccess
 from app.models.data_source import DataSource
 from app.models.project import Project
@@ -28,4 +29,12 @@ __all__ = [
     "GovernancePerson",
     "GovernanceDepartment",
     "GovernanceAssignment",
+    "AuditEvent",
+    "DataQualityRule",
+    "DataQualityRuleVersion",
+    "DataQualityRuleAuditEvent",
 ]
+
+from app.models.data_quality_rule import DataQualityRule
+from app.models.data_quality_rule_version import DataQualityRuleVersion
+from app.models.data_quality_rule_audit_event import DataQualityRuleAuditEvent

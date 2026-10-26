@@ -1,4 +1,4 @@
-﻿"""GeoVaris FastAPI application and route registration."""
+"""GeoVaris FastAPI application and route registration."""
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,6 +8,7 @@ from app.api.routes import (
     auth,
     clients,
     data_fields,
+    data_quality_rules,
     data_sources,
     dictionary,
     discovery,
@@ -129,6 +130,13 @@ app.include_router(
     tags=["Governance Directory"],
     dependencies=protected_dependencies,
 )
+app.include_router(
+    data_quality_rules.router,
+    prefix="/api/v1/data-quality-rules",
+    tags=["Data Quality Rules"],
+    dependencies=protected_dependencies,
+)
+
 # Installation administrator endpoints.
 app.include_router(
     user_management.router,
