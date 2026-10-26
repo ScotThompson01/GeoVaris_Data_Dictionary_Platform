@@ -109,6 +109,15 @@ def test_authenticated_user_can_create_draft_range_rule():
         assert result["active_version_id"] is None
         assert uuid.UUID(result["rule_id"])
         assert uuid.UUID(result["version_id"])
+        from app.models.data_quality_rule_version import DataQualityRuleVersion
+
+        created_versions = [
+            call.args[0]
+            for call in db.add.call_args_list
+            if isinstance(call.args[0], DataQualityRuleVersion)
+        ]
+        assert len(created_versions) == 1
+        assert created_versions[0].created_by_user_id == user.id
         db.commit.assert_called_once()
     finally:
         app.dependency_overrides.pop(require_authenticated_session, None)

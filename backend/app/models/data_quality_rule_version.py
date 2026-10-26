@@ -70,6 +70,12 @@ class DataQualityRuleVersion(Base):
         index=True,
     )
 
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT", name="fk_dq_rule_version_created_by_user"),
+        nullable=True,
+    )
+
     version_number: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

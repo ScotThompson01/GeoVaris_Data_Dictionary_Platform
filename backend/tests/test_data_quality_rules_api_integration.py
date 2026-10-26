@@ -162,6 +162,7 @@ def test_authorized_api_creates_inactive_draft_in_postgresql():
                         assert version.min_value == Decimal("-90")
                         assert version.max_value == Decimal("90")
                         assert version.null_allowed is False
+                        assert version.created_by_user_id == user.id
                     finally:
                         app.dependency_overrides.pop(get_db, None)
                         app.dependency_overrides.pop(
