@@ -44,6 +44,7 @@ PROTECTED_PATHS = {
     "/api/v1/dictionary/export",
     "/api/v1/field-governance/{data_field_id}",
     "/api/v1/data-quality-rules",
+    "/api/v1/data-quality-rules/{rule_id}/versions/{version_id}/approve",
 }
 
 

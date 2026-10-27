@@ -82,3 +82,13 @@ class RangeRuleRead(BaseModel):
     status: Literal["draft", "active", "retired"]
     active_version_id: uuid.UUID | None
     versions: list[RangeRuleVersionRead]
+
+
+class RangeRuleApprovalResponse(BaseModel):
+    """Result of approving a rule version without activating it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: uuid.UUID
+    version_id: uuid.UUID
+    version_status: Literal["approved"] = "approved"
