@@ -19,10 +19,12 @@ from app.models.data_quality_rule_version import DataQualityRuleVersion
 from app.schemas.data_quality_rule import (
     RangeRuleCreate,
     RangeRuleCreateResponse,
+    RangeRuleApprovalResponse,
     RangeRuleRead,
     RangeRuleVersionRead,
 )
 from app.services.project_authorization import require_project_access
+from app.services.data_quality_rule_approval import approve_dq_rule_version
 
 router = APIRouter()
 
@@ -175,3 +177,30 @@ def list_field_range_rules(
         )
 
     return results
+
+
+@router.post(
+    "/{rule_id}/versions/{version_id}/approve",
+    response_model=RangeRuleApprovalResponse,
+)
+def approve_range_rule_version(
+    rule_id: uuid.UUID,
+    version_id: uuid.UUID,
+    project_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    session: AuthenticatedSession = Depends(require_authenticated_session),
+):
+    """Approve a draft rule version without activating the rule."""
+    version = approve_dq_rule_version(
+        db,
+        project_id=project_id,
+        rule_id=rule_id,
+        version_id=version_id,
+        actor_user_id=session.user.id,
+    )
+
+    return RangeRuleApprovalResponse(
+        rule_id=rule_id,
+        version_id=version.id,
+        version_status="approved",
+    )
