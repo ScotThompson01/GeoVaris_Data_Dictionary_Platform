@@ -20,11 +20,13 @@ from app.schemas.data_quality_rule import (
     RangeRuleCreate,
     RangeRuleCreateResponse,
     RangeRuleApprovalResponse,
+    RangeRuleActivationResponse,
     RangeRuleRead,
     RangeRuleVersionRead,
 )
 from app.services.project_authorization import require_project_access
 from app.services.data_quality_rule_approval import approve_dq_rule_version
+from app.services.data_quality_rule_activation import activate_dq_rule_version
 
 router = APIRouter()
 
@@ -203,4 +205,32 @@ def approve_range_rule_version(
         rule_id=rule_id,
         version_id=version.id,
         version_status="approved",
+    )
+
+
+@router.post(
+    "/{rule_id}/versions/{version_id}/activate",
+    response_model=RangeRuleActivationResponse,
+)
+def activate_range_rule_version(
+    rule_id: uuid.UUID,
+    version_id: uuid.UUID,
+    project_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    session: AuthenticatedSession = Depends(require_authenticated_session),
+):
+    """Activate an approved rule version."""
+    rule = activate_dq_rule_version(
+        db,
+        project_id=project_id,
+        rule_id=rule_id,
+        version_id=version_id,
+        actor_user_id=session.user.id,
+    )
+
+    return RangeRuleActivationResponse(
+        rule_id=rule.id,
+        version_id=rule.active_version_id,
+        rule_status="active",
+        active_version_id=rule.active_version_id,
     )

@@ -92,3 +92,13 @@ class RangeRuleApprovalResponse(BaseModel):
     rule_id: uuid.UUID
     version_id: uuid.UUID
     version_status: Literal["approved"] = "approved"
+
+class RangeRuleActivationResponse(BaseModel):
+    """Result of activating an approved rule version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: uuid.UUID
+    version_id: uuid.UUID
+    rule_status: Literal["active"] = "active"
+    active_version_id: uuid.UUID
