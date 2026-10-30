@@ -28,6 +28,8 @@ PROTECTED_PATHS = {
     "/api/v1/projects/{project_id}/settings",
     "/api/v1/data-sources",
     "/api/v1/data-sources/{data_source_id}",
+    "/api/v1/data-sources/{data_source_id}/postgresql-connection",
+    "/api/v1/data-sources/{data_source_id}/postgresql-connection/verify",
     "/api/v1/scans",
     "/api/v1/scans/{scan_id}",
     "/api/v1/source-objects",

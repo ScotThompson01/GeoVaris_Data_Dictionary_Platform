@@ -16,6 +16,7 @@ from app.api.routes import (
     governance_directory,
     health,
     profiling_results,
+    postgresql_connections,
     projects,
     scans,
     source_objects,
@@ -72,6 +73,13 @@ app.include_router(
     data_sources.router,
     prefix="/api/v1/data-sources",
     tags=["Data Sources"],
+    dependencies=protected_dependencies,
+)
+
+app.include_router(
+    postgresql_connections.router,
+    prefix="/api/v1/data-sources",
+    tags=["PostgreSQL Connections"],
     dependencies=protected_dependencies,
 )
 

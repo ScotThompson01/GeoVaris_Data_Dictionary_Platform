@@ -20,6 +20,7 @@ class PostgreSQLConnector(BaseDatabaseConnector):
         self,
         config: DatabaseConnectionConfig,
         password: str | None,
+        ssl_root_cert: str | None = None,
     ) -> dict:
         options = {
             "host": config.host,
@@ -34,18 +35,26 @@ class PostgreSQLConnector(BaseDatabaseConnector):
         if config.ssl_mode:
             options["sslmode"] = config.ssl_mode
 
+        if config.host_address:
+            options["hostaddr"] = config.host_address
+
+        if ssl_root_cert:
+            options["sslrootcert"] = ssl_root_cert
+
         return options
 
     def validate_connection(
         self,
         config: DatabaseConnectionConfig,
         password: str | None = None,
+        ssl_root_cert: str | None = None,
     ) -> None:
         try:
             with psycopg.connect(
                 **self._connection_options(
                     config,
                     password,
+                    ssl_root_cert=ssl_root_cert,
                 )
             ) as connection:
                 with connection.cursor() as cursor:
@@ -348,3 +357,35 @@ class PostgreSQLConnector(BaseDatabaseConnector):
             return "binary"
 
         return "other"
+
+
+    def measure_range(
+        self,
+        *,
+        config,
+        schema_name,
+        object_name,
+        field_name,
+        min_value,
+        max_value,
+        null_allowed,
+        password=None,
+        statement_timeout_ms=30000,
+    ):
+        """Measure a numeric range using source-side PostgreSQL aggregation."""
+        from app.connectors.database.postgresql_range_measurement import (
+            measure_postgresql_range,
+        )
+
+        return measure_postgresql_range(
+            config=config,
+            schema_name=schema_name,
+            object_name=object_name,
+            field_name=field_name,
+            min_value=min_value,
+            max_value=max_value,
+            null_allowed=null_allowed,
+            password=password,
+            statement_timeout_ms=statement_timeout_ms,
+        )
+
