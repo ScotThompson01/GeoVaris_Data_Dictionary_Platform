@@ -24,6 +24,10 @@ class DatabaseConnectionConfig:
 
     ssl_mode: str | None = None
 
+    # Optional prevalidated destination IP for PostgreSQL hostaddr.
+    # Preserve host for TLS verify-full hostname verification.
+    host_address: str | None = None
+
 
 class BaseDatabaseConnector(ABC):
     """
