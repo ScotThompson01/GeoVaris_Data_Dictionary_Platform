@@ -1,4 +1,4 @@
-﻿"""Eligibility checks for Data Quality rule execution.
+"""Eligibility checks for Data Quality rule execution.
 
 These checks do not connect to client data sources.
 Project authorization and source validation are separate requirements.
@@ -239,6 +239,7 @@ def measure_prepared_range_rule(
     password=None,
     connector=None,
     statement_timeout_ms=30000,
+    ssl_root_cert=None,
 ):
     """Measure an already-authorized and validated numeric range rule.
 
@@ -267,6 +268,7 @@ def measure_prepared_range_rule(
         null_allowed=version.null_allowed,
         password=password,
         statement_timeout_ms=statement_timeout_ms,
+        **({"ssl_root_cert": ssl_root_cert} if ssl_root_cert is not None else {}),
     )
 
 
@@ -349,17 +351,44 @@ def execute_range_rule(
         actor_user_id=actor_user_id,
     )
 
+    from app.core.config import settings
+    from app.services.postgresql_execution_authorization import (
+        authorize_postgresql_execution_connection,
+        revalidate_postgresql_execution_connection,
+    )
+
+    source = prepared.get("source")
+    if source is None or getattr(source, "id", None) is None:
+        raise ValueError("Data Quality execution requires a registered source.")
+
+    snapshot = authorize_postgresql_execution_connection(
+        db,
+        data_source_id=source.id,
+        username=config.username,
+    )
+    authorized_config = snapshot.config
+
     started_at = datetime.now(timezone.utc)
 
     measurement = measure_prepared_range_rule(
         prepared,
-        config=config,
+        config=authorized_config,
         password=password,
         connector=connector,
         statement_timeout_ms=statement_timeout_ms,
+        ssl_root_cert=settings.postgresql_verification_ssl_root_cert,
     )
 
     completed_at = datetime.now(timezone.utc)
+
+    revalidate_postgresql_execution_connection(
+        db,
+        data_source_id=source.id,
+        expected_host=snapshot.config.host,
+        expected_port=snapshot.config.port,
+        expected_database=snapshot.config.database,
+        expected_revision=snapshot.connection_revision,
+    )
 
     return record_successful_execution(
         db,

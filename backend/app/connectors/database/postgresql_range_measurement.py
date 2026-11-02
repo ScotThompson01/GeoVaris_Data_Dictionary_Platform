@@ -25,6 +25,7 @@ def measure_postgresql_range(
     null_allowed: bool,
     password: str | None = None,
     statement_timeout_ms: int = 30000,
+    ssl_root_cert: str | None = None,
 ) -> RangeMeasurement:
     """Measure one numeric range rule using a read-only aggregate query."""
     if min_value > max_value:
@@ -62,16 +63,15 @@ def measure_postgresql_range(
     )
 
     try:
-        with psycopg.connect(
-            host=config.host,
-            port=config.port,
-            dbname=config.database,
-            user=config.username,
-            password=password,
-            connect_timeout=config.connect_timeout_seconds,
-            options="-c default_transaction_read_only=on",
-            **({"sslmode": config.ssl_mode} if config.ssl_mode else {}),
-        ) as connection:
+        from app.connectors.database.postgresql_connector import PostgreSQLConnector
+
+        connection_options = PostgreSQLConnector()._connection_options(
+            config,
+            password,
+            ssl_root_cert=ssl_root_cert,
+        )
+
+        with psycopg.connect(**connection_options) as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
                     "SELECT set_config('statement_timeout', %s, true)",

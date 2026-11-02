@@ -238,3 +238,40 @@ def test_measure_range_sanitizes_postgresql_errors(mock_connect):
     assert "secret-value" not in str(error.value)
     assert "postgres.internal" not in str(error.value)
     assert error.value.__cause__ is None
+
+@patch("app.connectors.database.postgresql_range_measurement.psycopg.connect")
+def test_measure_range_forwards_pinned_ip_and_trusted_ca(mock_connect):
+    cursor = MagicMock()
+    cursor.fetchone.return_value = (10, 9, 1)
+
+    connection = MagicMock()
+    connection.cursor.return_value.__enter__.return_value = cursor
+    mock_connect.return_value.__enter__.return_value = connection
+
+    config = DatabaseConnectionConfig(
+        host="postgres.internal",
+        port=5432,
+        database="customer_database",
+        username="readonly_user",
+        ssl_mode="verify-full",
+        host_address="192.0.2.10",
+    )
+
+    PostgreSQLConnector().measure_range(
+        config=config,
+        schema_name="public",
+        object_name="assets",
+        field_name="latitude",
+        min_value=Decimal("-90"),
+        max_value=Decimal("90"),
+        null_allowed=False,
+        ssl_root_cert="/approved/certs/postgresql-ca.pem",
+    )
+
+    options = mock_connect.call_args.kwargs
+
+    assert options["host"] == "postgres.internal"
+    assert options["hostaddr"] == "192.0.2.10"
+    assert options["sslmode"] == "verify-full"
+    assert options["sslrootcert"] == "/approved/certs/postgresql-ca.pem"
+    assert options["options"] == "-c default_transaction_read_only=on"

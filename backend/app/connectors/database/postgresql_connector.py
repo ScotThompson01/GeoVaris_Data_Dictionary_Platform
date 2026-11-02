@@ -371,6 +371,7 @@ class PostgreSQLConnector(BaseDatabaseConnector):
         null_allowed,
         password=None,
         statement_timeout_ms=30000,
+        ssl_root_cert=None,
     ):
         """Measure a numeric range using source-side PostgreSQL aggregation."""
         from app.connectors.database.postgresql_range_measurement import (
@@ -387,5 +388,6 @@ class PostgreSQLConnector(BaseDatabaseConnector):
             null_allowed=null_allowed,
             password=password,
             statement_timeout_ms=statement_timeout_ms,
+            ssl_root_cert=ssl_root_cert,
         )
 
