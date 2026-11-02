@@ -56,3 +56,42 @@ def test_measurement_uses_approved_rule_values_and_source_metadata():
         password="runtime_test_secret",
         statement_timeout_ms=5000,
     )
+
+def test_measurement_forwards_trusted_ca_certificate():
+    """Range measurement must forward the approved CA certificate path."""
+    config = DatabaseConnectionConfig(
+        host="database.internal",
+        port=5432,
+        database="test_database",
+        username="readonly_user",
+        ssl_mode="verify-full",
+        host_address="10.20.30.10",
+    )
+    prepared = {
+        "version": SimpleNamespace(
+            min_value=Decimal("24.3"),
+            max_value=Decimal("31.1"),
+            null_allowed=False,
+        ),
+        "field": SimpleNamespace(field_name="latitude"),
+        "source_object": SimpleNamespace(
+            schema_name="public",
+            object_name="locations",
+        ),
+    }
+    connector = Mock()
+    connector.measure_range.return_value = RangeMeasurement(
+        total_count=100,
+        passing_count=95,
+        violation_count=5,
+    )
+
+    measure_prepared_range_rule(
+        prepared,
+        config=config,
+        connector=connector,
+        ssl_root_cert="/approved/trusted-ca.pem",
+    )
+
+    assert connector.measure_range.call_args.kwargs["ssl_root_cert"] == "/approved/trusted-ca.pem"
+    assert connector.measure_range.call_args.kwargs["config"] is config
