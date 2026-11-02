@@ -33,7 +33,10 @@ class DataQualityRuleExecution(Base):
             ondelete="RESTRICT",
         ),
         CheckConstraint(
-            "status IN ('succeeded', 'failed')",
+            "status IN ("
+            "'pending', 'running', 'succeeded', 'failed', "
+            "'incomplete', 'status_uncertain', 'cancelled'"
+            ")",
             name="ck_dq_execution_status",
         ),
         CheckConstraint(
@@ -119,9 +122,9 @@ class DataQualityRuleExecution(Base):
         nullable=True,
     )
 
-    started_at: Mapped[datetime] = mapped_column(
+    started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
-        nullable=False,
+        nullable=True,
     )
 
     completed_at: Mapped[datetime | None] = mapped_column(

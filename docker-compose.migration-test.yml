@@ -1,0 +1,40 @@
+name: geovaris-phase5e-migration-test
+
+services:
+  migration_test_db:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      POSTGRES_DB: geovaris_phase5e_migration_test
+      POSTGRES_USER: geovaris_migration_test
+      POSTGRES_PASSWORD: ${GEOVARIS_MIGRATION_TEST_PASSWORD:?Migration test password required}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U geovaris_migration_test -d geovaris_phase5e_migration_test
+      interval: 2s
+      timeout: 2s
+      retries: 15
+    networks:
+      - migration_test_network
+
+  migration_test_runner:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql+psycopg://geovaris_migration_test:${GEOVARIS_MIGRATION_TEST_PASSWORD:?Migration test password required}@migration_test_db:5432/geovaris_phase5e_migration_test
+    entrypoint:
+      - python
+      - -c
+      - "print('Migration test runner configured; no migrations executed.')"
+    depends_on:
+      migration_test_db:
+        condition: service_healthy
+    networks:
+      - migration_test_network
+
+networks:
+  migration_test_network:
+    internal: true
