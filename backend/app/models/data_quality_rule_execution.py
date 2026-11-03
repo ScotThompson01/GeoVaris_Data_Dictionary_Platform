@@ -11,6 +11,7 @@ from sqlalchemy import (
     Index,
     BigInteger,
     String,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -23,6 +24,12 @@ class DataQualityRuleExecution(Base):
     __tablename__ = "data_quality_rule_executions"
 
     __table_args__ = (
+        UniqueConstraint(
+            "id",
+            "project_id",
+            "rule_id",
+            name="uq_dq_execution_project_rule_identity",
+        ),
         ForeignKeyConstraint(
             ["rule_id", "version_id"],
             [

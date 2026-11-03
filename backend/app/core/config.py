@@ -5,6 +5,14 @@ class Settings(BaseSettings):
     database_url:str
     frontend_origin:str="http://localhost:3000"
 
+    # Phase 5E execution admission remains disabled until persistent
+    # ownership, capacity reservations, and recovery are implemented.
+    dq_execution_admission_enabled: bool = False
+
+    # Zero deliberately fails the execution capacity policy.
+    # A positive installation ceiling must be explicitly configured.
+    dq_execution_max_concurrent: int = 0
+
     # PostgreSQL verification is disabled until explicitly configured.
     postgresql_verification_enabled: bool = False
 

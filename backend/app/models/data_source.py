@@ -12,6 +12,11 @@ class DataSource(Base):
     __tablename__ = "data_sources"
     __table_args__ = (
         UniqueConstraint(
+            "id",
+            "project_id",
+            name="uq_data_source_project_identity",
+        ),
+        UniqueConstraint(
             "project_id",
             "name",
             name="uq_data_sources_project_name",
