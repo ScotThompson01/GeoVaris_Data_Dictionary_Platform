@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, String, func
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, ForeignKeyConstraint, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -13,6 +13,11 @@ from app.db.session import Base
 class DataQualityRule(Base):
     __tablename__ = "data_quality_rules"
     __table_args__ = (
+        UniqueConstraint(
+            "id",
+            "data_field_id",
+            name="uq_dq_rule_field_identity",
+        ),
         ForeignKeyConstraint(
             ["id", "active_version_id"],
             ["data_quality_rule_versions.rule_id", "data_quality_rule_versions.id"],

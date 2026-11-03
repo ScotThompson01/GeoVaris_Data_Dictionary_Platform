@@ -12,6 +12,11 @@ class SourceObject(Base):
     __tablename__ = "source_objects"
     __table_args__ = (
         UniqueConstraint(
+            "id",
+            "data_source_id",
+            name="uq_source_object_source_identity",
+        ),
+        UniqueConstraint(
             "data_source_id",
             "catalog_name",
             "schema_name",

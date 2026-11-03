@@ -21,6 +21,11 @@ class DataField(Base):
     __tablename__ = "data_fields"
     __table_args__ = (
         UniqueConstraint(
+            "id",
+            "source_object_id",
+            name="uq_data_field_object_identity",
+        ),
+        UniqueConstraint(
             "source_object_id",
             "field_name",
             name="uq_data_fields_object_name",
