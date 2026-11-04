@@ -267,3 +267,167 @@ def test_prerequisite_composite_unique_constraints_installed(engine):
                 connection, table_name, name
             )
             assert definition == f"UNIQUE ({columns})"
+
+
+def test_cross_source_reservation_is_rejected(engine):
+    """A source reservation must match its workload's actual source."""
+    ids = {
+        name: str(uuid4())
+        for name in (
+            "client", "project", "user", "source_a", "source_b",
+            "object", "field", "rule", "version", "execution",
+            "ownership", "control_a", "control_b",
+        )
+    }
+
+    def insert(connection, table, **values):
+        columns = ", ".join(values)
+        parameters = ", ".join(f":{column}" for column in values)
+        connection.execute(
+            text(
+                f"INSERT INTO {table} ({columns}) "
+                f"VALUES ({parameters})"
+            ),
+            values,
+        )
+
+    with engine.connect() as connection:
+        transaction = connection.begin()
+
+        try:
+            insert(
+                connection, "clients",
+                id=ids["client"],
+                name=f"Phase5E fixture {ids['client']}",
+            )
+            insert(
+                connection, "projects",
+                id=ids["project"],
+                client_id=ids["client"],
+                name="Phase5E isolated fixture",
+            )
+            insert(
+                connection, "users",
+                id=ids["user"],
+                username=f"p5e_{ids['user'].replace('-', '')}",
+                password_hash="fixture-only-not-a-login",
+            )
+
+            for name, source_name in (
+                ("source_a", "Source A"),
+                ("source_b", "Source B"),
+            ):
+                insert(
+                    connection, "data_sources",
+                    id=ids[name],
+                    project_id=ids["project"],
+                    name=source_name,
+                    source_type="postgresql",
+                    connection_mode="read_only",
+                )
+
+            insert(
+                connection, "source_objects",
+                id=ids["object"],
+                data_source_id=ids["source_a"],
+                object_type="table",
+                object_name="fixture_table",
+            )
+            insert(
+                connection, "data_fields",
+                id=ids["field"],
+                source_object_id=ids["object"],
+                field_name="fixture_value",
+                ordinal_position=1,
+            )
+            insert(
+                connection, "data_quality_rules",
+                id=ids["rule"],
+                data_field_id=ids["field"],
+                rule_name="Fixture range rule",
+            )
+            insert(
+                connection, "data_quality_rule_versions",
+                id=ids["version"],
+                rule_id=ids["rule"],
+                version_number=1,
+                min_value=0,
+                max_value=100,
+            )
+            insert(
+                connection, "data_quality_rule_executions",
+                id=ids["execution"],
+                project_id=ids["project"],
+                actor_user_id=ids["user"],
+                rule_id=ids["rule"],
+                version_id=ids["version"],
+                status="pending",
+            )
+            insert(
+                connection, "data_quality_workload_ownership",
+                id=ids["ownership"],
+                execution_id=ids["execution"],
+                project_id=ids["project"],
+                rule_id=ids["rule"],
+                data_field_id=ids["field"],
+                source_object_id=ids["object"],
+                data_source_id=ids["source_a"],
+            )
+
+            for name, source_name in (
+                ("control_a", "source_a"),
+                ("control_b", "source_b"),
+            ):
+                insert(
+                    connection,
+                    "data_quality_execution_capacity_controls",
+                    id=ids[name],
+                    scope_type="source",
+                    data_source_id=ids[source_name],
+                    max_concurrent=1,
+                )
+
+            # This reservation references Source B capacity, but the
+            # actual workload belongs to Source A.
+            with pytest.raises(IntegrityError) as error:
+                with connection.begin_nested():
+                    insert(
+                        connection,
+                        "data_quality_execution_capacity_reservations",
+                        id=str(uuid4()),
+                        ownership_id=ids["ownership"],
+                        capacity_control_id=ids["control_b"],
+                        ownership_data_source_id=ids["source_a"],
+                        data_source_id=ids["source_b"],
+                        reservation_scope="source",
+                    )
+
+            assert error.value.orig.sqlstate == "23514"
+            assert (
+                error.value.orig.diag.constraint_name
+                == "ck_dq_reservation_source_scope"
+            )
+
+            # Positive control: a matching reservation must succeed.
+            insert(
+                connection,
+                "data_quality_execution_capacity_reservations",
+                id=str(uuid4()),
+                ownership_id=ids["ownership"],
+                capacity_control_id=ids["control_a"],
+                ownership_data_source_id=ids["source_a"],
+                data_source_id=ids["source_a"],
+                reservation_scope="source",
+            )
+
+            assert connection.execute(
+                text(
+                    "SELECT count(*) FROM "
+                    "data_quality_execution_capacity_reservations "
+                    "WHERE ownership_id = :ownership_id"
+                ),
+                {"ownership_id": ids["ownership"]},
+            ).scalar_one() == 1
+
+        finally:
+            transaction.rollback()
