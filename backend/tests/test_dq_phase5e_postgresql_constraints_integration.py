@@ -566,3 +566,343 @@ def test_cross_source_reservation_is_rejected(engine):
 
         finally:
             transaction.rollback()
+
+
+
+def test_persisted_administrator_release_is_atomic(engine):
+    """Real PostgreSQL authorization checks must preserve reserved capacity."""
+    from sqlalchemy.orm import Session
+
+    # Register all ORM tables before SQLAlchemy computes flush dependencies.
+    import app.db.base  # noqa: F401
+
+    from app.services.data_quality_persisted_admin_release_transaction import (
+        stage_persisted_admin_resolution,
+    )
+
+    ids = {
+        name: str(uuid4())
+        for name in (
+            "client", "project", "user", "source", "object", "field",
+            "rule", "version", "execution", "ownership",
+            "installation", "source_control", "installation_reservation",
+            "source_reservation", "grant", "membership", "evidence",
+        )
+    }
+
+    def insert(connection, table, **values):
+        columns = ", ".join(values)
+        parameters = ", ".join(f":{name}" for name in values)
+        connection.execute(
+            text(
+                f"INSERT INTO {table} ({columns}) "
+                f"VALUES ({parameters})"
+            ),
+            values,
+        )
+
+    def assert_protected(connection):
+        state = connection.execute(
+            text(
+                "SELECT ownership_state FROM "
+                "data_quality_workload_ownership WHERE id = :id"
+            ),
+            {"id": ids["ownership"]},
+        ).scalar_one()
+
+        reservations = connection.execute(
+            text(
+                "SELECT reservation_state FROM "
+                "data_quality_execution_capacity_reservations "
+                "WHERE ownership_id = :id ORDER BY reservation_scope"
+            ),
+            {"id": ids["ownership"]},
+        ).scalars().all()
+
+        assert state == "unresolved"
+        assert reservations == ["unresolved", "unresolved"]
+
+    with engine.connect() as connection:
+        transaction = connection.begin()
+        session = None
+
+        try:
+            insert(
+                connection, "clients",
+                id=ids["client"],
+                name=f"Phase5E release {ids['client']}",
+            )
+            insert(
+                connection, "projects",
+                id=ids["project"],
+                client_id=ids["client"],
+                name="Disposable release project",
+            )
+            insert(
+                connection, "users",
+                id=ids["user"],
+                username=f"p5e_{ids['user'].replace('-', '')}",
+                password_hash="fixture-only-not-a-login",
+            )
+            insert(
+                connection, "project_access",
+                id=ids["membership"],
+                project_id=ids["project"],
+                user_id=ids["user"],
+            )
+            insert(
+                connection, "data_sources",
+                id=ids["source"],
+                project_id=ids["project"],
+                name="Disposable read-only source",
+                source_type="postgresql",
+                connection_mode="read_only",
+            )
+            insert(
+                connection, "source_objects",
+                id=ids["object"],
+                data_source_id=ids["source"],
+                object_type="table",
+                object_name="release_fixture",
+            )
+            insert(
+                connection, "data_fields",
+                id=ids["field"],
+                source_object_id=ids["object"],
+                field_name="fixture_value",
+                ordinal_position=1,
+            )
+            insert(
+                connection, "data_quality_rules",
+                id=ids["rule"],
+                data_field_id=ids["field"],
+                rule_name="Disposable release rule",
+            )
+            insert(
+                connection, "data_quality_rule_versions",
+                id=ids["version"],
+                rule_id=ids["rule"],
+                version_number=1,
+                min_value=0,
+                max_value=100,
+            )
+            insert(
+                connection, "data_quality_rule_executions",
+                id=ids["execution"],
+                project_id=ids["project"],
+                actor_user_id=ids["user"],
+                rule_id=ids["rule"],
+                version_id=ids["version"],
+                status="pending",
+            )
+            insert(
+                connection, "data_quality_workload_ownership",
+                id=ids["ownership"],
+                execution_id=ids["execution"],
+                project_id=ids["project"],
+                rule_id=ids["rule"],
+                data_field_id=ids["field"],
+                source_object_id=ids["object"],
+                data_source_id=ids["source"],
+                ownership_state="unresolved",
+            )
+
+            insert(
+                connection,
+                "data_quality_execution_capacity_controls",
+                id=ids["installation"],
+                scope_type="installation",
+                data_source_id=None,
+                max_concurrent=1,
+            )
+            insert(
+                connection,
+                "data_quality_execution_capacity_controls",
+                id=ids["source_control"],
+                scope_type="source",
+                data_source_id=ids["source"],
+                max_concurrent=1,
+            )
+
+            for scope, control_id, source_id, reservation_id in (
+                (
+                    "installation", ids["installation"], None,
+                    ids["installation_reservation"],
+                ),
+                (
+                    "source", ids["source_control"], ids["source"],
+                    ids["source_reservation"],
+                ),
+            ):
+                insert(
+                    connection,
+                    "data_quality_execution_capacity_reservations",
+                    id=reservation_id,
+                    ownership_id=ids["ownership"],
+                    capacity_control_id=control_id,
+                    ownership_data_source_id=ids["source"],
+                    data_source_id=source_id,
+                    reservation_scope=scope,
+                    reservation_state="unresolved",
+                )
+
+            insert(
+                connection,
+                "data_quality_workload_resolution_grants",
+                id=ids["grant"],
+                project_id=ids["project"],
+                user_id=ids["user"],
+                granted_by_user_id=ids["user"],
+            )
+
+            connection.execute(
+                text(
+                    "INSERT INTO data_quality_workload_release_evidence "
+                    "(id, ownership_id, project_id, data_source_id, "
+                    "actor_user_id, resolution_grant_id, evidence_type, "
+                    "evidence_status, reason, evidence_reference, "
+                    "verified_by_user_id, verified_at) "
+                    "VALUES (:id, :ownership_id, :project_id, "
+                    ":data_source_id, :actor_user_id, :grant_id, "
+                    "'authorized_admin_resolution', 'confirmed', "
+                    ":reason, :reference, :reviewer_id, now())"
+                ),
+                {
+                    "id": ids["evidence"],
+                    "ownership_id": ids["ownership"],
+                    "project_id": ids["project"],
+                    "data_source_id": ids["source"],
+                    "actor_user_id": ids["user"],
+                    "grant_id": ids["grant"],
+                    "reason": "Reviewed administrator resolution",
+                    "reference": "disposable-admin-evidence",
+                    "reviewer_id": ids["user"],
+                },
+            )
+
+            session = Session(
+                bind=connection,
+                autoflush=False,
+                join_transaction_mode="rollback_only",
+            )
+
+            kwargs = {
+                "project_id": uuid4(),
+                "ownership_id": uuid4(),
+                "data_source_id": uuid4(),
+                "evidence_id": uuid4(),
+                "trusted_actor_user_id": uuid4(),
+                "reason": "Reviewed administrator resolution",
+                "evidence_reference": "disposable-admin-evidence",
+            }
+
+            from uuid import UUID
+
+            kwargs.update({
+                "project_id": UUID(ids["project"]),
+                "ownership_id": UUID(ids["ownership"]),
+                "data_source_id": UUID(ids["source"]),
+                "evidence_id": UUID(ids["evidence"]),
+                "trusted_actor_user_id": UUID(ids["user"]),
+            })
+
+            assert_protected(connection)
+
+            # A revoked grant cannot authorize release.
+            with connection.begin_nested() as savepoint:
+                connection.execute(
+                    text(
+                        "UPDATE data_quality_workload_resolution_grants "
+                        "SET revoked_at = now() WHERE id = :id"
+                    ),
+                    {"id": ids["grant"]},
+                )
+                with pytest.raises(ValueError, match="Active administrator"):
+                    stage_persisted_admin_resolution(session, **kwargs)
+                assert_protected(connection)
+                session.close()
+                savepoint.rollback()
+                session = Session(
+                    bind=connection,
+                    autoflush=False,
+                    join_transaction_mode="rollback_only",
+                )
+
+            # Removing project membership must also prevent release.
+            with connection.begin_nested() as savepoint:
+                connection.execute(
+                    text("DELETE FROM project_access WHERE id = :id"),
+                    {"id": ids["membership"]},
+                )
+                with pytest.raises(ValueError, match="membership"):
+                    stage_persisted_admin_resolution(session, **kwargs)
+                assert_protected(connection)
+                session.close()
+                savepoint.rollback()
+                session = Session(
+                    bind=connection,
+                    autoflush=False,
+                    join_transaction_mode="rollback_only",
+                )
+
+            # Unconfirmed evidence must not release capacity.
+            with connection.begin_nested() as savepoint:
+                connection.execute(
+                    text(
+                        "UPDATE data_quality_workload_release_evidence "
+                        "SET evidence_status = 'recorded', "
+                        "verified_at = NULL, verified_by_user_id = NULL "
+                        "WHERE id = :id"
+                    ),
+                    {"id": ids["evidence"]},
+                )
+                with pytest.raises(ValueError, match="not been confirmed"):
+                    stage_persisted_admin_resolution(session, **kwargs)
+                assert_protected(connection)
+                session.close()
+                savepoint.rollback()
+                session = Session(
+                    bind=connection,
+                    autoflush=False,
+                    join_transaction_mode="rollback_only",
+                )
+
+            # An actor mismatch must not release capacity.
+            with pytest.raises(ValueError, match="Trusted actor"):
+                stage_persisted_admin_resolution(
+                    session,
+                    **{
+                        **kwargs,
+                        "trusted_actor_user_id": uuid4(),
+                    },
+                )
+            assert_protected(connection)
+
+            # Matching confirmed evidence and active authorization can
+            # stage the three state changes in the same transaction.
+            stage_persisted_admin_resolution(session, **kwargs)
+
+            ownership_state = connection.execute(
+                text(
+                    "SELECT ownership_state FROM "
+                    "data_quality_workload_ownership WHERE id = :id"
+                ),
+                {"id": ids["ownership"]},
+            ).scalar_one()
+
+            reservation_states = connection.execute(
+                text(
+                    "SELECT reservation_state FROM "
+                    "data_quality_execution_capacity_reservations "
+                    "WHERE ownership_id = :id ORDER BY reservation_scope"
+                ),
+                {"id": ids["ownership"]},
+            ).scalars().all()
+
+            assert ownership_state == "released"
+            assert reservation_states == ["released", "released"]
+
+        finally:
+            if session is not None:
+                session.close()
+            transaction.rollback()
