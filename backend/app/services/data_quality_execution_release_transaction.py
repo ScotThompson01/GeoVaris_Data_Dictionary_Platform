@@ -41,6 +41,7 @@ def stage_verified_workload_release(
     evidence_reference: str,
     source_termination_verified: bool = False,
     administrator_authorized: bool = False,
+    validate_under_locks=None,
 ) -> None:
     """Stage release of ownership and both reservations atomically.
 
@@ -140,6 +141,14 @@ def stage_verified_workload_release(
         or by_scope["source"].capacity_control_id != source.id
     ):
         raise ValueError("Reservations reference incorrect capacity controls.")
+
+    # Additional internal checks must run after capacity and workload
+    # locks, but before any ownership or reservation state is changed.
+    # This callback never grants authorization by itself.
+    if validate_under_locks is not None:
+        if not callable(validate_under_locks):
+            raise ValueError("Invalid locked release validator.")
+        validate_under_locks(db, ownership)
 
     released_at = datetime.now(timezone.utc)
 

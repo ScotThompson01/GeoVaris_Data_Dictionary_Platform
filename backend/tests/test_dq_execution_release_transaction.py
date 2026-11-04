@@ -330,3 +330,64 @@ def test_extra_capacity_reservation_prevents_release():
     assert db.flush_count == 0
     assert owner.ownership_state == "unresolved"
     assert all(r.reservation_state == "unresolved" for r in reservations)
+
+
+
+def test_locked_validator_failure_preserves_capacity():
+    db, owner, reservations, kwargs = scenario("unresolved")
+    calls = []
+
+    def reject_after_locks(session, locked_ownership):
+        calls.append((session, locked_ownership, len(session.reads)))
+        raise ValueError("Persisted authorization rejected.")
+
+    kwargs["validate_under_locks"] = reject_after_locks
+
+    with pytest.raises(ValueError, match="authorization rejected"):
+        stage_verified_workload_release(db, **kwargs)
+
+    assert calls == [(db, owner, 4)]
+    assert db.flush_count == 0
+    assert owner.ownership_state == "unresolved"
+    assert all(
+        reservation.reservation_state == "unresolved"
+        for reservation in reservations
+    )
+
+
+def test_locked_validator_runs_before_release_mutations():
+    db, owner, reservations, kwargs = scenario("unresolved")
+    observed = []
+
+    def inspect_locked_records(session, locked_ownership):
+        observed.append(
+            (
+                len(session.reads),
+                locked_ownership.ownership_state,
+                tuple(item.reservation_state for item in reservations),
+            )
+        )
+
+    kwargs["validate_under_locks"] = inspect_locked_records
+    stage_verified_workload_release(db, **kwargs)
+
+    assert observed == [
+        (4, "unresolved", ("unresolved", "unresolved"))
+    ]
+    assert db.flush_count == 1
+    assert owner.ownership_state == "released"
+
+
+def test_invalid_locked_validator_preserves_capacity():
+    db, owner, reservations, kwargs = scenario("unresolved")
+    kwargs["validate_under_locks"] = True
+
+    with pytest.raises(ValueError, match="Invalid locked"):
+        stage_verified_workload_release(db, **kwargs)
+
+    assert db.flush_count == 0
+    assert owner.ownership_state == "unresolved"
+    assert all(
+        reservation.reservation_state == "unresolved"
+        for reservation in reservations
+    )
