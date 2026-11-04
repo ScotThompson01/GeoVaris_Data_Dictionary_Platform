@@ -274,7 +274,7 @@ def test_cross_source_reservation_is_rejected(engine):
     ids = {
         name: str(uuid4())
         for name in (
-            "client", "project", "user", "source_a", "source_b",
+            "client", "project", "project_b", "user", "source_a", "source_b",
             "object", "field", "rule", "version", "execution",
             "ownership", "control_a", "control_b",
         )
@@ -305,6 +305,12 @@ def test_cross_source_reservation_is_rejected(engine):
                 id=ids["project"],
                 client_id=ids["client"],
                 name="Phase5E isolated fixture",
+            )
+            insert(
+                connection, "projects",
+                id=ids["project_b"],
+                client_id=ids["client"],
+                name="Phase5E separate project",
             )
             insert(
                 connection, "users",
@@ -363,6 +369,28 @@ def test_cross_source_reservation_is_rejected(engine):
                 version_id=ids["version"],
                 status="pending",
             )
+            # An execution and source belonging to Project A cannot
+            # be assigned to a workload claiming Project B.
+            with pytest.raises(IntegrityError) as project_error:
+                with connection.begin_nested():
+                    insert(
+                        connection,
+                        "data_quality_workload_ownership",
+                        id=str(uuid4()),
+                        execution_id=ids["execution"],
+                        project_id=ids["project_b"],
+                        rule_id=ids["rule"],
+                        data_field_id=ids["field"],
+                        source_object_id=ids["object"],
+                        data_source_id=ids["source_a"],
+                    )
+
+            assert project_error.value.orig.sqlstate == "23503"
+            assert project_error.value.orig.diag.constraint_name in {
+                "fk_dq_workload_data_source_identity",
+                "fk_dq_workload_execution_identity",
+            }
+
             # The field and object belong to Source A. An ownership
             # record claiming Source B must fail at the database layer.
             with pytest.raises(IntegrityError) as ownership_error:
