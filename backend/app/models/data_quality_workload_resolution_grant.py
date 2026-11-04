@@ -19,6 +19,12 @@ class DataQualityWorkloadResolutionGrant(Base):
 
     __table_args__ = (
         UniqueConstraint(
+            "id",
+            "project_id",
+            "user_id",
+            name="uq_dq_resolution_grant_id_project_user",
+        ),
+        UniqueConstraint(
             "project_id",
             "user_id",
             name="uq_dq_resolution_grant_project_user",

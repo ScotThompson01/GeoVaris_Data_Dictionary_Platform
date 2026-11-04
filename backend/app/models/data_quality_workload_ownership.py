@@ -29,6 +29,12 @@ class DataQualityWorkloadOwnership(Base):
     __table_args__ = (
         UniqueConstraint(
             "id",
+            "project_id",
+            "data_source_id",
+            name="uq_dq_workload_id_project_source",
+        ),
+        UniqueConstraint(
+            "id",
             "data_source_id",
             name="uq_dq_workload_id_source",
         ),
