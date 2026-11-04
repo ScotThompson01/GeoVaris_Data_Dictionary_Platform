@@ -78,7 +78,7 @@ def scenario(admin=False):
     )
 
     responses = (
-        [ownership, evidence, uuid4(), grant]
+        [ownership, evidence, uuid4(), grant, actor_id]
         if admin else [ownership, evidence]
     )
 
@@ -90,7 +90,7 @@ def test_scoped_lookup_returns_consistent_evidence(admin):
     db, evidence, ownership, grant, kwargs = scenario(admin)
 
     assert load(db, **kwargs) is evidence
-    assert len(db.statements) == (4 if admin else 2)
+    assert len(db.statements) == (5 if admin else 2)
 
 
 @pytest.mark.parametrize(
@@ -193,6 +193,8 @@ def test_lookup_queries_are_scoped_and_locked():
     assert "data_quality_workload_release_evidence" in sql[1]
     assert "project_access" in sql[2]
     assert "data_quality_workload_resolution_grants" in sql[3]
+    assert "users" in sql[4]
+    assert "is_active IS true" in sql[4]
 
     for statement in db.statements:
         assert statement._for_update_arg is not None
@@ -216,3 +218,27 @@ def test_lookup_never_commits_or_flushes():
 
     assert not hasattr(db, "commit")
     assert not hasattr(db, "flush")
+
+
+
+def test_inactive_resolution_actor_is_rejected():
+    db, evidence, ownership, grant, kwargs = scenario(admin=True)
+    db.responses[4] = None
+
+    with pytest.raises(ValueError, match="Active resolution actor account"):
+        load(db, **kwargs)
+
+    assert len(db.statements) == 5
+
+
+def test_active_resolution_actor_query_is_scoped_and_locked():
+    db, evidence, ownership, grant, kwargs = scenario(admin=True)
+
+    load(db, **kwargs)
+
+    statement = db.statements[4]
+    compiled = statement.compile(dialect=postgresql.dialect())
+
+    assert statement._for_update_arg is not None
+    assert "is_active IS true" in str(compiled)
+    assert evidence.actor_user_id in compiled.params.values()

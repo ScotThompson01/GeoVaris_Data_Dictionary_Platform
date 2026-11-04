@@ -893,6 +893,31 @@ def test_persisted_administrator_release_is_atomic(engine):
                 )
             assert_protected(connection)
 
+            # Disabling the resolution actor must reject release even
+            # while their project membership and dedicated grant remain.
+            with connection.begin_nested() as savepoint:
+                connection.execute(
+                    text(
+                        "UPDATE users SET is_active = FALSE WHERE id = :id"
+                    ),
+                    {"id": ids["user"]},
+                )
+
+                with pytest.raises(
+                    ValueError,
+                    match="Active resolution actor account required",
+                ):
+                    stage_persisted_admin_resolution(session, **kwargs)
+
+                assert_protected(connection)
+                session.close()
+                savepoint.rollback()
+                session = Session(
+                    bind=connection,
+                    autoflush=False,
+                    join_transaction_mode="rollback_only",
+                )
+
             # Reviewer must remain active, an installation administrator,
             # and a current member of this project. The actor is a
             # separate user so its own authorization remains intact.

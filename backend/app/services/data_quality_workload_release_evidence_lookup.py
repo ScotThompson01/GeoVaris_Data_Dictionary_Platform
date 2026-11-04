@@ -22,6 +22,7 @@ from app.models.data_quality_workload_resolution_grant import (
     DataQualityWorkloadResolutionGrant as Grant,
 )
 from app.models.project_access import ProjectAccess
+from app.models.user import User
 from app.services.data_quality_workload_release_evidence_integrity import (
     validate_release_evidence_record_consistency,
 )
@@ -121,6 +122,18 @@ def load_consistent_release_evidence(
 
         if grant is None:
             raise ValueError("Active administrator resolution grant not found.")
+
+        active_actor = db.scalar(
+            select(User.id)
+            .where(
+                User.id == evidence.actor_user_id,
+                User.is_active.is_(True),
+            )
+            .with_for_update()
+        )
+
+        if active_actor is None:
+            raise ValueError("Active resolution actor account required.")
 
     validate_release_evidence_record_consistency(
         evidence=evidence,
