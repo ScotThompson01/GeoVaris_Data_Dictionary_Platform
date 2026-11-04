@@ -20,6 +20,9 @@ from app.services.data_quality_execution_release_transaction import (
 from app.services.data_quality_persisted_release_validation import (
     validate_persisted_admin_resolution_under_locks,
 )
+from app.services.data_quality_release_reviewer_authorization import (
+    require_release_reviewer_authority,
+)
 
 
 def stage_persisted_admin_resolution(
@@ -62,6 +65,12 @@ def stage_persisted_admin_resolution(
             locked_ownership,
             evidence_id=evidence_id,
             trusted_actor_user_id=trusted_actor_user_id,
+        )
+
+        require_release_reviewer_authority(
+            session,
+            reviewer_user_id=evidence.verified_by_user_id,
+            project_id=project_id,
         )
 
         if (

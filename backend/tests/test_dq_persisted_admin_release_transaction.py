@@ -16,7 +16,9 @@ def setup_case(monkeypatch):
     actor_id = uuid4()
     evidence_id = uuid4()
 
+    reviewer_id = uuid4()
     evidence = SimpleNamespace(
+        verified_by_user_id=reviewer_id,
         reason="Verified administrator resolution",
         evidence_reference="admin-evidence-001",
         actor_user_id=actor_id,
@@ -44,6 +46,19 @@ def setup_case(monkeypatch):
         service,
         "validate_persisted_admin_resolution_under_locks",
         validator,
+    )
+
+    reviewer_checks = []
+
+    def check_reviewer(session, *, reviewer_user_id, project_id):
+        reviewer_checks.append(
+            (session, reviewer_user_id, project_id, len(session.reads))
+        )
+
+    monkeypatch.setattr(
+        service,
+        "require_release_reviewer_authority",
+        check_reviewer,
     )
 
     release_kwargs = dict(
@@ -176,3 +191,81 @@ def test_missing_capacity_control_prevents_evidence_validation(
         reservation.reservation_state == "unresolved"
         for reservation in reservations
     )
+
+
+
+def test_reviewer_authority_failure_preserves_capacity(monkeypatch):
+    db, owner, reservations, evidence, calls, kwargs = setup_case(
+        monkeypatch
+    )
+
+    def reject_reviewer(*args, **validation_kwargs):
+        raise ValueError("Active installation administrator reviewer required.")
+
+    monkeypatch.setattr(
+        service,
+        "require_release_reviewer_authority",
+        reject_reviewer,
+    )
+
+    with pytest.raises(ValueError, match="Active installation"):
+        service.stage_persisted_admin_resolution(db, **kwargs)
+
+    assert len(calls) == 1
+    assert len(db.reads) == 4
+    assert db.flush_count == 0
+    assert owner.ownership_state == "unresolved"
+    assert all(
+        reservation.reservation_state == "unresolved"
+        for reservation in reservations
+    )
+
+
+def test_reviewer_project_membership_failure_preserves_capacity(
+    monkeypatch,
+):
+    db, owner, reservations, evidence, calls, kwargs = setup_case(
+        monkeypatch
+    )
+
+    def reject_reviewer(*args, **validation_kwargs):
+        raise ValueError("Reviewer project membership required.")
+
+    monkeypatch.setattr(
+        service,
+        "require_release_reviewer_authority",
+        reject_reviewer,
+    )
+
+    with pytest.raises(ValueError, match="Reviewer project membership"):
+        service.stage_persisted_admin_resolution(db, **kwargs)
+
+    assert db.flush_count == 0
+    assert owner.ownership_state == "unresolved"
+    assert all(
+        reservation.reservation_state == "unresolved"
+        for reservation in reservations
+    )
+
+
+def test_reviewer_identity_is_taken_from_persisted_evidence(monkeypatch):
+    db, owner, reservations, evidence, calls, kwargs = setup_case(
+        monkeypatch
+    )
+    reviewed = []
+
+    def inspect_reviewer(session, *, reviewer_user_id, project_id):
+        reviewed.append((session, reviewer_user_id, project_id, len(session.reads)))
+
+    monkeypatch.setattr(
+        service,
+        "require_release_reviewer_authority",
+        inspect_reviewer,
+    )
+
+    service.stage_persisted_admin_resolution(db, **kwargs)
+
+    assert reviewed == [
+        (db, evidence.verified_by_user_id, owner.project_id, 4)
+    ]
+    assert db.flush_count == 1
