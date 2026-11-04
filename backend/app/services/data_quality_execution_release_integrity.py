@@ -1,4 +1,4 @@
-﻿"""Validate persistent workload protection before any future release.
+"""Validate persistent workload protection before any future release.
 
 Pure validation only. This module does not authorize, commit, or
 perform capacity release, and never contacts client data sources.
@@ -47,6 +47,14 @@ def validate_protected_workload(
 
         if getattr(reservation, "ownership_id", None) != ownership_id:
             raise ValueError("Reservation belongs to another workload.")
+
+        if (
+            getattr(reservation, "ownership_data_source_id", None)
+            != source_id
+        ):
+            raise ValueError(
+                "Reservation workload source identity mismatch."
+            )
 
         if getattr(reservation, "reservation_state", None) != state:
             raise ValueError("Ownership and reservation states do not match.")

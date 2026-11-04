@@ -27,7 +27,7 @@ class DataQualityExecutionCapacityReservation(Base):
 
     __table_args__ = (
         ForeignKeyConstraint(
-            ["ownership_id", "data_source_id"],
+            ["ownership_id", "ownership_data_source_id"],
             [
                 "data_quality_workload_ownership.id",
                 "data_quality_workload_ownership.data_source_id",
@@ -47,7 +47,8 @@ class DataQualityExecutionCapacityReservation(Base):
         ),
         CheckConstraint(
             "(reservation_scope = 'installation' AND data_source_id IS NULL) "
-            "OR (reservation_scope = 'source' AND data_source_id IS NOT NULL)",
+            "OR (reservation_scope = 'source' "
+            "AND data_source_id = ownership_data_source_id)",
             name="ck_dq_reservation_source_scope",
         ),
         ForeignKeyConstraint(
@@ -113,6 +114,11 @@ class DataQualityExecutionCapacityReservation(Base):
     )
 
     capacity_control_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=False,
+    )
+
+    ownership_data_source_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         nullable=False,
     )

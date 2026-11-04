@@ -1,4 +1,4 @@
-﻿"""Tests for fail-closed workload release integrity validation."""
+"""Tests for fail-closed workload release integrity validation."""
 
 from types import SimpleNamespace
 from uuid import uuid4
@@ -27,6 +27,7 @@ def protected_workload(state="reserved"):
     installation = SimpleNamespace(
         ownership_id=owner_id,
         capacity_control_id=uuid4(),
+        ownership_data_source_id=source_id,
         reservation_scope="installation",
         reservation_state=state,
         data_source_id=None,
@@ -39,6 +40,7 @@ def protected_workload(state="reserved"):
     source = SimpleNamespace(
         ownership_id=owner_id,
         capacity_control_id=uuid4(),
+        ownership_data_source_id=source_id,
         reservation_scope="source",
         reservation_state=state,
         data_source_id=source_id,
@@ -67,6 +69,9 @@ def test_valid_protected_workload(state):
         "duplicate_scope",
         "wrong_owner",
         "wrong_source",
+        "wrong_installation_ownership_source",
+        "wrong_source_ownership_source",
+        "missing_ownership_source",
         "mismatched_state",
         "released_owner",
         "released_reservation",
@@ -85,6 +90,12 @@ def test_rejects_invalid_workload_protection(mutation):
         reservations[1].ownership_id = uuid4()
     elif mutation == "wrong_source":
         reservations[1].data_source_id = uuid4()
+    elif mutation == "wrong_installation_ownership_source":
+        reservations[0].ownership_data_source_id = uuid4()
+    elif mutation == "wrong_source_ownership_source":
+        reservations[1].ownership_data_source_id = uuid4()
+    elif mutation == "missing_ownership_source":
+        reservations[0].ownership_data_source_id = None
     elif mutation == "mismatched_state":
         reservations[1].reservation_state = "unresolved"
     elif mutation == "released_owner":

@@ -77,6 +77,7 @@ def scenario(state="reserved"):
             id=uuid4(),
             ownership_id=owner_id,
             capacity_control_id=installation_id,
+            ownership_data_source_id=source_id,
             data_source_id=None,
             reservation_scope="installation",
             reservation_state=state,
@@ -86,6 +87,7 @@ def scenario(state="reserved"):
             id=uuid4(),
             ownership_id=owner_id,
             capacity_control_id=source_control_id,
+            ownership_data_source_id=source_id,
             data_source_id=source_id,
             reservation_scope="source",
             reservation_state=state,
@@ -169,6 +171,8 @@ def test_authorized_resolution_can_stage_release():
     [
         "missing_reservation",
         "wrong_source",
+        "wrong_installation_ownership_source",
+        "wrong_source_ownership_source",
         "wrong_capacity_control",
         "mismatched_state",
         "already_released",
@@ -181,6 +185,10 @@ def test_integrity_failures_preserve_capacity(mutation):
         reservations.pop()
     elif mutation == "wrong_source":
         reservations[1].data_source_id = uuid4()
+    elif mutation == "wrong_installation_ownership_source":
+        reservations[0].ownership_data_source_id = uuid4()
+    elif mutation == "wrong_source_ownership_source":
+        reservations[1].ownership_data_source_id = uuid4()
     elif mutation == "wrong_capacity_control":
         reservations[1].capacity_control_id = uuid4()
     elif mutation == "mismatched_state":
