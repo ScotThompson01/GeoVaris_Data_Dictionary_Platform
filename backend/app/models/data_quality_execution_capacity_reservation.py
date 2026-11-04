@@ -48,6 +48,7 @@ class DataQualityExecutionCapacityReservation(Base):
         CheckConstraint(
             "(reservation_scope = 'installation' AND data_source_id IS NULL) "
             "OR (reservation_scope = 'source' "
+            "AND data_source_id IS NOT NULL "
             "AND data_source_id = ownership_data_source_id)",
             name="ck_dq_reservation_source_scope",
         ),
