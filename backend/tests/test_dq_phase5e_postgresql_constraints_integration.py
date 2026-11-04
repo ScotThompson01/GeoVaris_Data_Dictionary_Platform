@@ -269,16 +269,23 @@ def test_prerequisite_composite_unique_constraints_installed(engine):
             assert definition == f"UNIQUE ({columns})"
 
 
-def test_cross_source_reservation_is_rejected(engine):
-    """A source reservation must match its workload's actual source."""
-    ids = {
+
+def _phase5e_fixture_ids():
+    """Create unique identifiers for isolated PostgreSQL fixtures."""
+    return {
         name: str(uuid4())
         for name in (
-            "client", "project", "project_b", "user", "source_a", "source_b",
-            "object", "field", "rule", "version", "execution",
-            "ownership", "control_a", "control_b",
+            "client", "project", "project_b", "user", "user_b",
+            "source_a", "source_b", "object", "field",
+            "rule", "version", "execution", "ownership",
+            "control_a", "control_b", "grant",
         )
     }
+
+
+def test_cross_source_reservation_is_rejected(engine):
+    """A source reservation must match its workload's actual source."""
+    ids = _phase5e_fixture_ids()
 
     def insert(connection, table, **values):
         columns = ", ".join(values)
@@ -316,6 +323,12 @@ def test_cross_source_reservation_is_rejected(engine):
                 connection, "users",
                 id=ids["user"],
                 username=f"p5e_{ids['user'].replace('-', '')}",
+                password_hash="fixture-only-not-a-login",
+            )
+            insert(
+                connection, "users",
+                id=ids["user_b"],
+                username=f"p5e_{ids['user_b'].replace('-', '')}",
                 password_hash="fixture-only-not-a-login",
             )
 
@@ -423,6 +436,78 @@ def test_cross_source_reservation_is_rejected(engine):
                 source_object_id=ids["object"],
                 data_source_id=ids["source_a"],
             )
+
+            # The grant belongs to User A in Project A.
+            insert(
+                connection,
+                "data_quality_workload_resolution_grants",
+                id=ids["grant"],
+                project_id=ids["project"],
+                user_id=ids["user"],
+                granted_by_user_id=ids["user"],
+            )
+
+            def insert_evidence(**changes):
+                values = {
+                    "id": str(uuid4()),
+                    "ownership_id": ids["ownership"],
+                    "project_id": ids["project"],
+                    "data_source_id": ids["source_a"],
+                    "actor_user_id": ids["user"],
+                    "resolution_grant_id": ids["grant"],
+                    "evidence_type": "authorized_admin_resolution",
+                    "reason": "Isolated identity constraint test",
+                    "evidence_reference": "phase5e-test-reference",
+                }
+                values.update(changes)
+                insert(
+                    connection,
+                    "data_quality_workload_release_evidence",
+                    **values,
+                )
+
+            # Evidence cannot claim another project's identity.
+            with pytest.raises(IntegrityError) as project_evidence_error:
+                with connection.begin_nested():
+                    insert_evidence(
+                        project_id=ids["project_b"],
+                    )
+
+            assert project_evidence_error.value.orig.sqlstate == "23503"
+            assert (
+                project_evidence_error.value.orig.diag.constraint_name
+                in {
+                    "fk_dq_release_evidence_workload_identity",
+                    "fk_dq_release_evidence_resolution_grant_identity",
+                }
+            )
+
+            # User B cannot use User A's resolution grant.
+            with pytest.raises(IntegrityError) as actor_evidence_error:
+                with connection.begin_nested():
+                    insert_evidence(
+                        actor_user_id=ids["user_b"],
+                    )
+
+            assert actor_evidence_error.value.orig.sqlstate == "23503"
+            assert (
+                actor_evidence_error.value.orig.diag.constraint_name
+                == "fk_dq_release_evidence_resolution_grant_identity"
+            )
+
+            # Matching identities must be accepted by the database.
+            insert_evidence()
+
+            evidence_count = connection.execute(
+                text(
+                    "SELECT count(*) "
+                    "FROM data_quality_workload_release_evidence "
+                    "WHERE ownership_id = :ownership_id"
+                ),
+                {"ownership_id": ids["ownership"]},
+            ).scalar_one()
+
+            assert evidence_count == 1
 
             for name, source_name in (
                 ("control_a", "source_a"),
