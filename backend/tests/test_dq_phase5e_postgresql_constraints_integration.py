@@ -587,6 +587,7 @@ def test_persisted_administrator_release_is_atomic(engine):
             "rule", "version", "execution", "ownership",
             "installation", "source_control", "installation_reservation",
             "source_reservation", "grant", "membership", "evidence",
+            "reviewer", "reviewer_membership",
         )
     }
 
@@ -649,6 +650,20 @@ def test_persisted_administrator_release_is_atomic(engine):
                 id=ids["membership"],
                 project_id=ids["project"],
                 user_id=ids["user"],
+            )
+            insert(
+                connection, "users",
+                id=ids["reviewer"],
+                username=f"p5e_{ids['reviewer'].replace('-', '')}",
+                password_hash="fixture-only-not-a-login",
+                is_active=True,
+                is_installation_admin=True,
+            )
+            insert(
+                connection, "project_access",
+                id=ids["reviewer_membership"],
+                project_id=ids["project"],
+                user_id=ids["reviewer"],
             )
             insert(
                 connection, "data_sources",
@@ -776,7 +791,7 @@ def test_persisted_administrator_release_is_atomic(engine):
                     "grant_id": ids["grant"],
                     "reason": "Reviewed administrator resolution",
                     "reference": "disposable-admin-evidence",
-                    "reviewer_id": ids["user"],
+                    "reviewer_id": ids["reviewer"],
                 },
             )
 
@@ -877,6 +892,40 @@ def test_persisted_administrator_release_is_atomic(engine):
                     },
                 )
             assert_protected(connection)
+
+            # Reviewer must remain active, an installation administrator,
+            # and a current member of this project. The actor is a
+            # separate user so its own authorization remains intact.
+            for mutation, parameters, expected_error in (
+                (
+                    "UPDATE users SET is_active = FALSE WHERE id = :id",
+                    {"id": ids["reviewer"]},
+                    "Active installation administrator",
+                ),
+                (
+                    "UPDATE users SET is_installation_admin = FALSE "
+                    "WHERE id = :id",
+                    {"id": ids["reviewer"]},
+                    "Active installation administrator",
+                ),
+                (
+                    "DELETE FROM project_access WHERE id = :id",
+                    {"id": ids["reviewer_membership"]},
+                    "Reviewer project membership",
+                ),
+            ):
+                with connection.begin_nested() as savepoint:
+                    connection.execute(text(mutation), parameters)
+                    with pytest.raises(ValueError, match=expected_error):
+                        stage_persisted_admin_resolution(session, **kwargs)
+                    assert_protected(connection)
+                    session.close()
+                    savepoint.rollback()
+                    session = Session(
+                        bind=connection,
+                        autoflush=False,
+                        join_transaction_mode="rollback_only",
+                    )
 
             # Matching confirmed evidence and active authorization can
             # stage the three state changes in the same transaction.
