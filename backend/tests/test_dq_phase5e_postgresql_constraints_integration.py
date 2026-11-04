@@ -363,6 +363,28 @@ def test_cross_source_reservation_is_rejected(engine):
                 version_id=ids["version"],
                 status="pending",
             )
+            # The field and object belong to Source A. An ownership
+            # record claiming Source B must fail at the database layer.
+            with pytest.raises(IntegrityError) as ownership_error:
+                with connection.begin_nested():
+                    insert(
+                        connection,
+                        "data_quality_workload_ownership",
+                        id=str(uuid4()),
+                        execution_id=ids["execution"],
+                        project_id=ids["project"],
+                        rule_id=ids["rule"],
+                        data_field_id=ids["field"],
+                        source_object_id=ids["object"],
+                        data_source_id=ids["source_b"],
+                    )
+
+            assert ownership_error.value.orig.sqlstate == "23503"
+            assert (
+                ownership_error.value.orig.diag.constraint_name
+                == "fk_dq_workload_source_object_identity"
+            )
+
             insert(
                 connection, "data_quality_workload_ownership",
                 id=ids["ownership"],
