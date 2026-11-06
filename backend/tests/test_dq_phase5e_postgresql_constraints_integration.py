@@ -1186,3 +1186,1117 @@ def test_concurrent_session_revocation_blocks_locked_validation(engine):
                 text("DELETE FROM users WHERE id = :id"),
                 {"id": str(actor_id)},
             )
+
+
+
+def test_capacity_admission_locks_both_controls(engine):
+    """Installation and source locks must survive through the transaction."""
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.orm import Session
+
+    from app.services.data_quality_execution_admission_capacity import (
+        require_locked_execution_capacity,
+    )
+
+    ids = {
+        key: uuid4()
+        for key in (
+            "client", "project", "source",
+            "installation_control", "source_control",
+        )
+    }
+
+    # Synthetic records exist only in the opt-in disposable test database.
+    with engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO clients (id, name) VALUES (:id, :name)"),
+            {
+                "id": str(ids["client"]),
+                "name": "Disposable capacity-locking client",
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO projects (id, client_id, name) "
+                "VALUES (:id, :client_id, :name)"
+            ),
+            {
+                "id": str(ids["project"]),
+                "client_id": str(ids["client"]),
+                "name": "Disposable capacity-locking project",
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO data_sources "
+                "(id, project_id, name, source_type, connection_mode) "
+                "VALUES (:id, :project_id, :name, "
+                "'postgresql', 'read_only')"
+            ),
+            {
+                "id": str(ids["source"]),
+                "project_id": str(ids["project"]),
+                "name": "Disposable capacity-locking source",
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO data_quality_execution_capacity_controls "
+                "(id, scope_type, data_source_id, max_concurrent) "
+                "VALUES (:id, 'installation', NULL, 2)"
+            ),
+            {"id": str(ids["installation_control"])},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO data_quality_execution_capacity_controls "
+                "(id, scope_type, data_source_id, max_concurrent) "
+                "VALUES (:id, 'source', :source_id, 1)"
+            ),
+            {
+                "id": str(ids["source_control"]),
+                "source_id": str(ids["source"]),
+            },
+        )
+
+    try:
+        with Session(engine, autoflush=False) as first:
+            installation, source = require_locked_execution_capacity(
+                first,
+                data_source_id=ids["source"],
+                installation_limit=2,
+            )
+
+            assert installation.id == ids["installation_control"]
+            assert source.id == ids["source_control"]
+
+            # A second transaction must not acquire either row lock.
+            with engine.connect() as second:
+                for control_id in (
+                    ids["installation_control"],
+                    ids["source_control"],
+                ):
+                    with pytest.raises(OperationalError) as error:
+                        with second.begin():
+                            second.execute(
+                                text("SET LOCAL lock_timeout = '300ms'")
+                            )
+                            second.execute(
+                                text(
+                                    "SELECT id FROM "
+                                    "data_quality_execution_capacity_controls "
+                                    "WHERE id = :id FOR UPDATE"
+                                ),
+                                {"id": str(control_id)},
+                            ).scalar_one()
+
+                    assert (
+                        getattr(error.value.orig, "sqlstate", None)
+                        == "55P03"
+                    )
+
+            # Neither test nor capacity service commits admission.
+            first.rollback()
+
+    finally:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "DELETE FROM "
+                    "data_quality_execution_capacity_controls "
+                    "WHERE id IN (:installation_id, :source_id)"
+                ),
+                {
+                    "installation_id": str(ids["installation_control"]),
+                    "source_id": str(ids["source_control"]),
+                },
+            )
+            connection.execute(
+                text("DELETE FROM data_sources WHERE id = :id"),
+                {"id": str(ids["source"])},
+            )
+            connection.execute(
+                text("DELETE FROM projects WHERE id = :id"),
+                {"id": str(ids["project"])},
+            )
+            connection.execute(
+                text("DELETE FROM clients WHERE id = :id"),
+                {"id": str(ids["client"])},
+            )
+
+
+
+@pytest.mark.parametrize("reservation_state", ["reserved", "unresolved"])
+@pytest.mark.parametrize(
+    "installation_limit,source_limit",
+    [(1, 2), (2, 1)],
+)
+def test_capacity_exhaustion_with_persistent_reservations(
+    engine, reservation_state, installation_limit, source_limit
+):
+    """Both active reservation states consume each scope's capacity."""
+    from uuid import UUID
+
+    from sqlalchemy.orm import Session
+
+    from app.services.data_quality_execution_admission_capacity import (
+        require_locked_execution_capacity,
+    )
+
+    ids = _phase5e_fixture_ids()
+    installation_control_id = str(uuid4())
+    source_control_id = str(uuid4())
+
+    def insert(connection, table, **values):
+        columns = ", ".join(values)
+        parameters = ", ".join(f":{column}" for column in values)
+        connection.execute(
+            text(
+                f"INSERT INTO {table} ({columns}) "
+                f"VALUES ({parameters})"
+            ),
+            values,
+        )
+
+    # All records are isolated to this transaction and rolled back.
+    with engine.connect() as connection:
+        transaction = connection.begin()
+
+        try:
+            insert(
+                connection, "clients",
+                id=ids["client"],
+                name=f"Capacity fixture {ids['client']}",
+            )
+            insert(
+                connection, "projects",
+                id=ids["project"],
+                client_id=ids["client"],
+                name="Disposable capacity project",
+            )
+            insert(
+                connection, "users",
+                id=ids["user"],
+                username=f"capacity_{ids['user'].replace('-', '')}",
+                password_hash="fixture-only-not-a-login",
+            )
+            insert(
+                connection, "data_sources",
+                id=ids["source_a"],
+                project_id=ids["project"],
+                name="Disposable capacity source",
+                source_type="postgresql",
+                connection_mode="read_only",
+            )
+            insert(
+                connection, "source_objects",
+                id=ids["object"],
+                data_source_id=ids["source_a"],
+                object_type="table",
+                object_name="capacity_fixture",
+            )
+            insert(
+                connection, "data_fields",
+                id=ids["field"],
+                source_object_id=ids["object"],
+                field_name="fixture_value",
+                ordinal_position=1,
+            )
+            insert(
+                connection, "data_quality_rules",
+                id=ids["rule"],
+                data_field_id=ids["field"],
+                rule_name="Capacity fixture rule",
+            )
+            insert(
+                connection, "data_quality_rule_versions",
+                id=ids["version"],
+                rule_id=ids["rule"],
+                version_number=1,
+                min_value=0,
+                max_value=100,
+            )
+            insert(
+                connection, "data_quality_rule_executions",
+                id=ids["execution"],
+                project_id=ids["project"],
+                actor_user_id=ids["user"],
+                rule_id=ids["rule"],
+                version_id=ids["version"],
+                status="pending",
+            )
+            insert(
+                connection, "data_quality_workload_ownership",
+                id=ids["ownership"],
+                execution_id=ids["execution"],
+                project_id=ids["project"],
+                rule_id=ids["rule"],
+                data_field_id=ids["field"],
+                source_object_id=ids["object"],
+                data_source_id=ids["source_a"],
+                ownership_state=reservation_state,
+            )
+            insert(
+                connection,
+                "data_quality_execution_capacity_controls",
+                id=installation_control_id,
+                scope_type="installation",
+                data_source_id=None,
+                max_concurrent=installation_limit,
+            )
+            insert(
+                connection,
+                "data_quality_execution_capacity_controls",
+                id=source_control_id,
+                scope_type="source",
+                data_source_id=ids["source_a"],
+                max_concurrent=source_limit,
+            )
+
+            for control_id, scope, reservation_source in (
+                (installation_control_id, "installation", None),
+                (source_control_id, "source", ids["source_a"]),
+            ):
+                insert(
+                    connection,
+                    "data_quality_execution_capacity_reservations",
+                    id=str(uuid4()),
+                    ownership_id=ids["ownership"],
+                    capacity_control_id=control_id,
+                    ownership_data_source_id=ids["source_a"],
+                    data_source_id=reservation_source,
+                    reservation_scope=scope,
+                    reservation_state=reservation_state,
+                )
+
+            # Assess persisted protection without releasing capacity.
+            from types import SimpleNamespace
+
+            from app.services.data_quality_execution_recovery_policy import (
+                assess_protected_execution_recovery,
+            )
+
+            execution_row = connection.execute(
+                text(
+                    "SELECT id, status FROM data_quality_rule_executions "
+                    "WHERE id = :id"
+                ),
+                {"id": ids["execution"]},
+            ).mappings().one()
+
+            ownership_row = connection.execute(
+                text(
+                    "SELECT id, execution_id, data_source_id, "
+                    "ownership_state, released_at, release_actor, "
+                    "release_reason, release_evidence_reference "
+                    "FROM data_quality_workload_ownership WHERE id = :id"
+                ),
+                {"id": ids["ownership"]},
+            ).mappings().one()
+
+            reservation_rows = connection.execute(
+                text(
+                    "SELECT id, ownership_id, ownership_data_source_id, "
+                    "data_source_id, capacity_control_id, "
+                    "reservation_scope, reservation_state, released_at, "
+                    "release_actor, release_reason, "
+                    "release_evidence_reference "
+                    "FROM data_quality_execution_capacity_reservations "
+                    "WHERE ownership_id = :id ORDER BY reservation_scope"
+                ),
+                {"id": ids["ownership"]},
+            ).mappings().all()
+
+            before = (
+                dict(execution_row),
+                dict(ownership_row),
+                [dict(row) for row in reservation_rows],
+            )
+
+            result = assess_protected_execution_recovery(
+                execution=SimpleNamespace(**before[0]),
+                ownership=SimpleNamespace(**before[1]),
+                reservations=[
+                    SimpleNamespace(**row) for row in before[2]
+                ],
+                interruption_detected=True,
+            )
+
+            assert result == "manual_review_required"
+            assert before[1]["ownership_state"] == reservation_state
+            assert len(before[2]) == 2
+            assert {
+                row["reservation_scope"] for row in before[2]
+            } == {"installation", "source"}
+            assert all(
+                row["reservation_state"] == reservation_state
+                for row in before[2]
+            )
+
+            after = (
+                dict(connection.execute(
+                    text(
+                        "SELECT id, status FROM data_quality_rule_executions "
+                        "WHERE id = :id"
+                    ),
+                    {"id": ids["execution"]},
+                ).mappings().one()),
+                dict(connection.execute(
+                    text(
+                        "SELECT id, execution_id, data_source_id, "
+                        "ownership_state, released_at, release_actor, "
+                        "release_reason, release_evidence_reference "
+                        "FROM data_quality_workload_ownership WHERE id = :id"
+                    ),
+                    {"id": ids["ownership"]},
+                ).mappings().one()),
+                [
+                    dict(row) for row in connection.execute(
+                        text(
+                            "SELECT id, ownership_id, "
+                            "ownership_data_source_id, data_source_id, "
+                            "capacity_control_id, reservation_scope, "
+                            "reservation_state, released_at, release_actor, "
+                            "release_reason, release_evidence_reference "
+                            "FROM data_quality_execution_capacity_reservations "
+                            "WHERE ownership_id = :id "
+                            "ORDER BY reservation_scope"
+                        ),
+                        {"id": ids["ownership"]},
+                    ).mappings().all()
+                ],
+            )
+
+            assert after == before, (
+                "Recovery assessment must not mutate persisted protection."
+            )
+
+            # Verify read-only project isolation against persisted
+            # PostgreSQL workload ownership records.
+            from app.services.data_quality_execution_recovery_inventory import (
+                list_project_protected_workload_candidates,
+            )
+
+            with Session(bind=connection, autoflush=False) as inventory_db:
+                own_records = list_project_protected_workload_candidates(
+                    inventory_db,
+                    project_id=UUID(ids["project"]),
+                )
+                other_records = list_project_protected_workload_candidates(
+                    inventory_db,
+                    project_id=UUID(ids["project_b"]),
+                )
+
+                assert len(own_records) == 1
+                assert own_records[0].id == UUID(ids["ownership"])
+                assert own_records[0].project_id == UUID(ids["project"])
+                assert own_records[0].ownership_state == reservation_state
+                assert other_records == []
+
+            persisted_state = connection.execute(
+                text(
+                    "SELECT ownership_state "
+                    "FROM data_quality_workload_ownership "
+                    "WHERE id = :ownership_id"
+                ),
+                {"ownership_id": ids["ownership"]},
+            ).scalar_one()
+
+            assert persisted_state == reservation_state
+
+            with Session(bind=connection, autoflush=False) as db:
+                with pytest.raises(ValueError, match="capacity"):
+                    require_locked_execution_capacity(
+                        db,
+                        data_source_id=UUID(ids["source_a"]),
+                        installation_limit=installation_limit,
+                    )
+
+            # Released fixture must disappear from recovery inventory.
+            # This synthetic state setup tests filtering only; it does
+            # not exercise or authorize administrative capacity release.
+            audit = {
+                "actor": "disposable-test-fixture",
+                "reason": "Synthetic released-state inventory test",
+                "reference": "phase5e-released-filter-test",
+            }
+
+            for table, identity_column, identity in (
+                (
+                    "data_quality_execution_capacity_reservations",
+                    "ownership_id",
+                    ids["ownership"],
+                ),
+                (
+                    "data_quality_workload_ownership",
+                    "id",
+                    ids["ownership"],
+                ),
+            ):
+                state_column = (
+                    "reservation_state"
+                    if table == "data_quality_execution_capacity_reservations"
+                    else "ownership_state"
+                )
+
+                connection.execute(
+                    text(
+                        f"UPDATE {table} "
+                        f"SET {state_column} = 'released', "
+                        "released_at = now(), "
+                        "release_actor = :actor, "
+                        "release_reason = :reason, "
+                        "release_evidence_reference = :reference "
+                        f"WHERE {identity_column} = :identity"
+                    ),
+                    {**audit, "identity": identity},
+                )
+
+            with Session(bind=connection, autoflush=False) as inventory_db:
+                released_results = list_project_protected_workload_candidates(
+                    inventory_db,
+                    project_id=UUID(ids["project"]),
+                )
+
+                assert released_results == [], (
+                    "Released fixture must disappear from recovery inventory."
+                )
+
+            assert connection.execute(
+                text(
+                    "SELECT count(*) "
+                    "FROM data_quality_execution_capacity_reservations "
+                    "WHERE ownership_id = :id "
+                    "AND reservation_state = 'released'"
+                ),
+                {"id": ids["ownership"]},
+            ).scalar_one() == 2
+
+            assert connection.execute(
+                text(
+                    "SELECT ownership_state "
+                    "FROM data_quality_workload_ownership "
+                    "WHERE id = :id"
+                ),
+                {"id": ids["ownership"]},
+            ).scalar_one() == "released"
+
+        finally:
+            transaction.rollback()
+
+
+
+@pytest.mark.parametrize("failure_mode", ["python", "database_constraint"])
+def test_admission_staging_reservation_failure_rolls_back(engine, monkeypatch, failure_mode):
+    """A reservation-stage failure must leave no partial admission records."""
+    from types import SimpleNamespace
+    from uuid import UUID
+
+    from sqlalchemy.orm import Session
+
+    # Register referenced ORM tables before flushing execution records.
+    # The existing integration fixture otherwise uses Core SQL inserts.
+    from app.models import data_quality_rule
+    from app.models import data_quality_rule_version
+    from app.models import data_quality_rule_execution
+    from app.models import data_quality_workload_ownership
+    from app.models import data_quality_execution_capacity_control
+    from app.models import data_quality_execution_capacity_reservation
+
+    from app.services import data_quality_execution_admission_staging as staging
+
+    ids = _phase5e_fixture_ids()
+    installation_id = str(uuid4())
+    source_control_id = str(uuid4())
+
+    def insert(connection, table, **values):
+        columns = ", ".join(values)
+        placeholders = ", ".join(f":{column}" for column in values)
+        connection.execute(
+            text(
+                f"INSERT INTO {table} ({columns}) "
+                f"VALUES ({placeholders})"
+            ),
+            values,
+        )
+
+    with engine.connect() as connection:
+        outer = connection.begin()
+        try:
+            insert(
+                connection, "clients",
+                id=ids["client"],
+                name=f"Admission rollback fixture {ids['client']}",
+            )
+            insert(
+                connection, "projects",
+                id=ids["project"],
+                client_id=ids["client"],
+                name="Disposable admission rollback project",
+            )
+            insert(
+                connection, "users",
+                id=ids["user"],
+                username=f"rollback_{ids['user'].replace('-', '')}",
+                password_hash="fixture-only-not-a-login",
+            )
+            insert(
+                connection, "data_sources",
+                id=ids["source_a"],
+                project_id=ids["project"],
+                name="Disposable admission rollback source",
+                source_type="postgresql",
+                connection_mode="read_only",
+            )
+            insert(
+                connection, "source_objects",
+                id=ids["object"],
+                data_source_id=ids["source_a"],
+                object_type="table",
+                object_name="rollback_fixture",
+            )
+            insert(
+                connection, "data_fields",
+                id=ids["field"],
+                source_object_id=ids["object"],
+                field_name="fixture_value",
+                ordinal_position=1,
+            )
+            insert(
+                connection, "data_quality_rules",
+                id=ids["rule"],
+                data_field_id=ids["field"],
+                rule_name="Rollback fixture rule",
+            )
+            insert(
+                connection, "data_quality_rule_versions",
+                id=ids["version"],
+                rule_id=ids["rule"],
+                version_number=1,
+                min_value=0,
+                max_value=100,
+            )
+            insert(
+                connection, "data_quality_execution_capacity_controls",
+                id=installation_id,
+                scope_type="installation",
+                data_source_id=None,
+                max_concurrent=2,
+            )
+            insert(
+                connection, "data_quality_execution_capacity_controls",
+                id=source_control_id,
+                scope_type="source",
+                data_source_id=ids["source_a"],
+                max_concurrent=1,
+            )
+
+            prepared = {
+                "rule": SimpleNamespace(
+                    id=UUID(ids["rule"]),
+                    data_field_id=UUID(ids["field"]),
+                ),
+                "version": SimpleNamespace(
+                    id=UUID(ids["version"]),
+                    rule_id=UUID(ids["rule"]),
+                ),
+                "field": SimpleNamespace(
+                    id=UUID(ids["field"]),
+                    source_object_id=UUID(ids["object"]),
+                ),
+                "source_object": SimpleNamespace(
+                    id=UUID(ids["object"]),
+                    data_source_id=UUID(ids["source_a"]),
+                ),
+                "source": SimpleNamespace(
+                    id=UUID(ids["source_a"]),
+                    project_id=UUID(ids["project"]),
+                ),
+            }
+
+            real_add = Session.add
+
+            def fail_on_source_reservation(self, instance, *args, **kwargs):
+                if (
+                    instance.__class__.__name__
+                    == "DataQualityExecutionCapacityReservation"
+                    and instance.reservation_scope == "source"
+                ):
+                    if failure_mode == "python":
+                        raise RuntimeError(
+                            "synthetic source reservation failure"
+                        )
+
+                    # Force a real PostgreSQL foreign-key violation.
+                    instance.capacity_control_id = uuid4()
+
+                return real_add(self, instance, *args, **kwargs)
+
+            with monkeypatch.context() as patch:
+                patch.setattr(Session, "add", fail_on_source_reservation)
+
+                with Session(bind=connection, autoflush=False) as db:
+                    if failure_mode == "python":
+                        expected_error = RuntimeError
+                    else:
+                        expected_error = IntegrityError
+
+                    with pytest.raises(expected_error) as error:
+                        with db.begin_nested():
+                            staging.stage_protected_execution_records(
+                                db,
+                                prepared=prepared,
+                                project_id=UUID(ids["project"]),
+                                actor_user_id=UUID(ids["user"]),
+                                installation_limit=2,
+                            )
+
+                    if failure_mode == "database_constraint":
+                        assert error.value.orig.sqlstate == "23503"
+                    else:
+                        assert (
+                            "synthetic source reservation failure"
+                            in str(error.value)
+                        )
+
+            for table, key in (
+                ("data_quality_rule_executions", "project_id"),
+                ("data_quality_workload_ownership", "project_id"),
+                ("data_quality_execution_capacity_reservations",
+                 "ownership_data_source_id"),
+            ):
+                value = (
+                    ids["source_a"]
+                    if key == "ownership_data_source_id"
+                    else ids["project"]
+                )
+                count = connection.execute(
+                    text(
+                        f"SELECT count(*) FROM {table} "
+                        f"WHERE {key} = :value"
+                    ),
+                    {"value": value},
+                ).scalar_one()
+
+                assert count == 0, (
+                    f"Partial admission records remained in {table}"
+                )
+        finally:
+            outer.rollback()
+
+
+
+def test_competing_admission_cannot_exceed_committed_capacity(engine):
+    """A competing admission must wait for locks and see committed capacity."""
+    from types import SimpleNamespace
+    from uuid import UUID
+
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.orm import Session
+
+    # Register the ORM dependency graph before flushing.
+    from app.models import data_quality_rule
+    from app.models import data_quality_rule_version
+    from app.models import data_quality_rule_execution
+    from app.models import data_quality_workload_ownership
+    from app.models import data_quality_execution_capacity_control
+    from app.models import data_quality_execution_capacity_reservation
+
+    from app.services.data_quality_execution_admission_capacity import (
+        require_locked_execution_capacity,
+    )
+    from app.services.data_quality_execution_admission_staging import (
+        stage_protected_execution_records,
+    )
+
+    ids = _phase5e_fixture_ids()
+    installation_id = str(uuid4())
+    source_control_id = str(uuid4())
+    execution_grant_id = str(uuid4())
+
+    def insert(connection, table, **values):
+        columns = ", ".join(values)
+        parameters = ", ".join(f":{column}" for column in values)
+        connection.execute(
+            text(
+                f"INSERT INTO {table} ({columns}) "
+                f"VALUES ({parameters})"
+            ),
+            values,
+        )
+
+    # Commit only synthetic fixture metadata to the disposable database.
+    with engine.begin() as connection:
+        insert(
+            connection, "clients",
+            id=ids["client"],
+            name=f"Concurrent admission fixture {ids['client']}",
+        )
+        insert(
+            connection, "projects",
+            id=ids["project"],
+            client_id=ids["client"],
+            name="Disposable concurrency project",
+        )
+        insert(
+            connection, "users",
+            id=ids["user"],
+            username=f"concurrency_{ids['user'].replace('-', '')}",
+            password_hash="fixture-only-not-a-login",
+        )
+        insert(
+            connection, "project_access",
+            id=execution_grant_id,
+            user_id=ids["user"],
+            project_id=ids["project"],
+            can_execute_dq_rules=True,
+        )
+        insert(
+            connection, "data_sources",
+            id=ids["source_a"],
+            project_id=ids["project"],
+            name="Disposable concurrency source",
+            source_type="postgresql",
+            connection_mode="read_only",
+        )
+        insert(
+            connection, "source_objects",
+            id=ids["object"],
+            data_source_id=ids["source_a"],
+            object_type="table",
+            object_name="concurrent_fixture",
+        )
+        insert(
+            connection, "data_fields",
+            id=ids["field"],
+            source_object_id=ids["object"],
+            field_name="fixture_value",
+            ordinal_position=1,
+        )
+        insert(
+            connection, "data_quality_rules",
+            id=ids["rule"],
+            data_field_id=ids["field"],
+            rule_name="Concurrency fixture rule",
+        )
+        insert(
+            connection, "data_quality_rule_versions",
+            id=ids["version"],
+            rule_id=ids["rule"],
+            version_number=1,
+            min_value=0,
+            max_value=100,
+        )
+        insert(
+            connection, "data_quality_execution_capacity_controls",
+            id=installation_id,
+            scope_type="installation",
+            data_source_id=None,
+            max_concurrent=1,
+        )
+        insert(
+            connection, "data_quality_execution_capacity_controls",
+            id=source_control_id,
+            scope_type="source",
+            data_source_id=ids["source_a"],
+            max_concurrent=1,
+        )
+
+    prepared = {
+        "rule": SimpleNamespace(
+            id=UUID(ids["rule"]),
+            data_field_id=UUID(ids["field"]),
+        ),
+        "version": SimpleNamespace(
+            id=UUID(ids["version"]),
+            rule_id=UUID(ids["rule"]),
+        ),
+        "field": SimpleNamespace(
+            id=UUID(ids["field"]),
+            source_object_id=UUID(ids["object"]),
+        ),
+        "source_object": SimpleNamespace(
+            id=UUID(ids["object"]),
+            data_source_id=UUID(ids["source_a"]),
+        ),
+        "source": SimpleNamespace(
+            id=UUID(ids["source_a"]),
+            project_id=UUID(ids["project"]),
+        ),
+    }
+
+    try:
+        with Session(engine, autoflush=False) as first:
+            staged = stage_protected_execution_records(
+                first,
+                prepared=prepared,
+                project_id=UUID(ids["project"]),
+                actor_user_id=UUID(ids["user"]),
+                installation_limit=1,
+            )
+
+            assert staged["execution"].status == "pending"
+            # Retain identity before commit expires ORM attributes.
+            committed_execution_id = staged["execution"].id
+
+            # Cross-transaction admission visibility boundary:
+            # flushed records must not be visible before commit.
+            with engine.connect() as observer:
+                observer.execute(
+                    text("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+                )
+                precommit_counts = {
+                    "execution": observer.execute(
+                        text(
+                            "SELECT count(*) FROM data_quality_rule_executions "
+                            "WHERE project_id = :project_id"
+                        ),
+                        {"project_id": ids["project"]},
+                    ).scalar_one(),
+                    "ownership": observer.execute(
+                        text(
+                            "SELECT count(*) FROM data_quality_workload_ownership "
+                            "WHERE data_source_id = :source_id"
+                        ),
+                        {"source_id": ids["source_a"]},
+                    ).scalar_one(),
+                    "reservations": observer.execute(
+                        text(
+                            "SELECT count(*) "
+                            "FROM data_quality_execution_capacity_reservations "
+                            "WHERE ownership_data_source_id = :source_id"
+                        ),
+                        {"source_id": ids["source_a"]},
+                    ).scalar_one(),
+                }
+
+                assert precommit_counts == {
+                    "execution": 0,
+                    "ownership": 0,
+                    "reservations": 0,
+                }, "Uncommitted admission must not be visible."
+
+            # Run the competing admission in another thread while
+            # the first transaction still holds its capacity locks.
+            from concurrent.futures import ThreadPoolExecutor
+
+            def competing_admission():
+                with Session(engine, autoflush=False) as competing:
+                    try:
+                        with competing.begin():
+                            competing.execute(
+                                text("SET LOCAL lock_timeout = '300ms'")
+                            )
+                            require_locked_execution_capacity(
+                                competing,
+                                data_source_id=UUID(ids["source_a"]),
+                                installation_limit=1,
+                            )
+                    except OperationalError as error:
+                        return getattr(error.orig, "sqlstate", None)
+
+                return "unexpectedly_admitted"
+
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(competing_admission)
+                result = future.result(timeout=10)
+
+            assert result == "55P03", (
+                "Competing thread must not acquire capacity locks "
+                f"while the first transaction is active: {result}"
+            )
+
+            # Capacity and both reservations become visible together.
+            first.commit()
+
+        # A fresh connection must see all committed protection records.
+        with engine.connect() as observer:
+            postcommit_counts = {
+                "execution": observer.execute(
+                    text(
+                        "SELECT count(*) FROM data_quality_rule_executions "
+                        "WHERE project_id = :project_id AND status = 'pending'"
+                    ),
+                    {"project_id": ids["project"]},
+                ).scalar_one(),
+                "ownership": observer.execute(
+                    text(
+                        "SELECT count(*) FROM data_quality_workload_ownership "
+                        "WHERE data_source_id = :source_id "
+                        "AND ownership_state = 'reserved'"
+                    ),
+                    {"source_id": ids["source_a"]},
+                ).scalar_one(),
+                "reservations": observer.execute(
+                    text(
+                        "SELECT count(*) "
+                        "FROM data_quality_execution_capacity_reservations "
+                        "WHERE ownership_data_source_id = :source_id "
+                        "AND reservation_state = 'reserved'"
+                    ),
+                    {"source_id": ids["source_a"]},
+                ).scalar_one(),
+            }
+
+            assert postcommit_counts == {
+                "execution": 1,
+                "ownership": 1,
+                "reservations": 2,
+            }, "All protection records must become visible after commit."
+
+        # The competing admission must now observe exhausted capacity.
+        with Session(engine, autoflush=False) as competing:
+            with pytest.raises(ValueError, match="capacity"):
+                require_locked_execution_capacity(
+                    competing,
+                    data_source_id=UUID(ids["source_a"]),
+                    installation_limit=1,
+                )
+            competing.rollback()
+
+        with engine.connect() as connection:
+            counts = connection.execute(
+                text(
+                    "SELECT reservation_scope, count(*) "
+                    "FROM data_quality_execution_capacity_reservations "
+                    "WHERE ownership_data_source_id = :source_id "
+                    "GROUP BY reservation_scope"
+                ),
+                {"source_id": ids["source_a"]},
+            ).all()
+
+            assert dict(counts) == {
+                "installation": 1,
+                "source": 1,
+            }
+
+            assert connection.execute(
+                text(
+                    "SELECT count(*) FROM data_quality_workload_ownership "
+                    "WHERE data_source_id = :source_id "
+                    "AND ownership_state = 'reserved'"
+                ),
+                {"source_id": ids["source_a"]},
+            ).scalar_one() == 1
+
+        # Protected start from a fresh committed-admission session.
+        # No worker or source measurement is launched.
+        from datetime import datetime, timezone
+        from app.services.data_quality_execution_protected_start import (
+            stage_protected_running_execution,
+        )
+
+        with Session(engine, autoflush=False) as starter:
+            with starter.begin():
+                started = stage_protected_running_execution(
+                    starter,
+                    project_id=UUID(ids["project"]),
+                    execution_id=committed_execution_id,
+                    actor_user_id=UUID(ids["user"]),
+                    started_at=datetime.now(timezone.utc),
+                )
+                assert started.status == "running"
+
+        # A separate connection must see the committed transition,
+        # while workload ownership and reservations remain protected.
+        with engine.connect() as observer:
+            assert observer.execute(
+                text(
+                    "SELECT status FROM data_quality_rule_executions "
+                    "WHERE id = :execution_id"
+                ),
+                {"execution_id": str(committed_execution_id)},
+            ).scalar_one() == "running"
+
+            assert observer.execute(
+                text(
+                    "SELECT ownership_state FROM data_quality_workload_ownership "
+                    "WHERE execution_id = :execution_id"
+                ),
+                {"execution_id": str(committed_execution_id)},
+            ).scalar_one() == "reserved"
+
+            assert observer.execute(
+                text(
+                    "SELECT count(*) "
+                    "FROM data_quality_execution_capacity_reservations "
+                    "WHERE ownership_data_source_id = :source_id "
+                    "AND reservation_state = 'reserved'"
+                ),
+                {"source_id": ids["source_a"]},
+            ).scalar_one() == 2
+
+    finally:
+        # Clean up in foreign-key dependency order, only on the
+        # explicitly authorized disposable integration-test database.
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "DELETE FROM data_quality_execution_capacity_reservations "
+                    "WHERE ownership_data_source_id = :source_id"
+                ),
+                {"source_id": ids["source_a"]},
+            )
+            connection.execute(
+                text(
+                    "DELETE FROM data_quality_workload_ownership "
+                    "WHERE data_source_id = :source_id"
+                ),
+                {"source_id": ids["source_a"]},
+            )
+            connection.execute(
+                text(
+                    "DELETE FROM data_quality_rule_executions "
+                    "WHERE project_id = :project_id"
+                ),
+                {"project_id": ids["project"]},
+            )
+            connection.execute(
+                text(
+                    "DELETE FROM data_quality_execution_capacity_controls "
+                    "WHERE id IN (:installation_id, :source_control_id)"
+                ),
+                {
+                    "installation_id": installation_id,
+                    "source_control_id": source_control_id,
+                },
+            )
+            connection.execute(
+                text(
+                    "DELETE FROM data_quality_rule_versions "
+                    "WHERE id = :id"
+                ),
+                {"id": ids["version"]},
+            )
+            connection.execute(
+                text("DELETE FROM data_quality_rules WHERE id = :id"),
+                {"id": ids["rule"]},
+            )
+            connection.execute(
+                text("DELETE FROM data_fields WHERE id = :id"),
+                {"id": ids["field"]},
+            )
+            connection.execute(
+                text("DELETE FROM source_objects WHERE id = :id"),
+                {"id": ids["object"]},
+            )
+            connection.execute(
+                text("DELETE FROM data_sources WHERE id = :id"),
+                {"id": ids["source_a"]},
+            )
+            connection.execute(
+                text("DELETE FROM project_access WHERE id = :id"),
+                {"id": execution_grant_id},
+            )
+            connection.execute(
+                text("DELETE FROM users WHERE id = :id"),
+                {"id": ids["user"]},
+            )
+            connection.execute(
+                text("DELETE FROM projects WHERE id = :id"),
+                {"id": ids["project"]},
+            )
+            connection.execute(
+                text("DELETE FROM clients WHERE id = :id"),
+                {"id": ids["client"]},
+            )
