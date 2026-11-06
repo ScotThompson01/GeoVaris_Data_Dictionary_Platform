@@ -1,3 +1,9 @@
+from app.models.data_quality_rule_execution import DataQualityRuleExecution
+from app.models.data_quality_execution_capacity_control import DataQualityExecutionCapacityControl
+from app.models.data_quality_workload_ownership import DataQualityWorkloadOwnership
+from app.models.data_quality_execution_capacity_reservation import DataQualityExecutionCapacityReservation
+from app.models.data_quality_workload_resolution_grant import DataQualityWorkloadResolutionGrant
+from app.models.data_quality_workload_release_evidence import DataQualityWorkloadReleaseEvidence
 from app.models.audit_event import AuditEvent
 from app.models.client import Client
 from app.models.client_access import ClientAccess
@@ -33,6 +39,12 @@ __all__ = [
     "DataQualityRule",
     "DataQualityRuleVersion",
     "DataQualityRuleAuditEvent",
+    "DataQualityRuleExecution",
+    "DataQualityExecutionCapacityControl",
+    "DataQualityWorkloadOwnership",
+    "DataQualityExecutionCapacityReservation",
+    "DataQualityWorkloadResolutionGrant",
+    "DataQualityWorkloadReleaseEvidence",
 ]
 
 from app.models.data_quality_rule import DataQualityRule
