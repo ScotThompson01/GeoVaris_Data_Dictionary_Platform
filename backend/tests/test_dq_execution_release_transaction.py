@@ -137,6 +137,7 @@ def trusted_scenario(monkeypatch, state="unresolved"):
         data_source_id=owner.data_source_id,
         evidence_id=evidence_id,
         trusted_actor_user_id=actor_id,
+        session_token="unit-test-release-session",
         reason="Verified administrator resolution",
         evidence_reference="admin-evidence-001",
     )
@@ -169,6 +170,25 @@ def trusted_scenario(monkeypatch, state="unresolved"):
         release_core,
         "require_release_reviewer_authority",
         validate_reviewer,
+    )
+
+    def validate_locked_session(
+        session, *, session_token, expected_actor_user_id
+    ):
+        assert session is db
+        assert session_token == kwargs["session_token"]
+        assert expected_actor_user_id == actor_id
+        assert len(session.reads) == 4
+        assert session.flush_count == 0
+        assert owner.ownership_state == state
+        assert all(
+            item.reservation_state == state for item in reservations
+        )
+
+    monkeypatch.setattr(
+        release_core,
+        "require_locked_release_session",
+        validate_locked_session,
     )
 
     return db, owner, reservations, kwargs

@@ -23,6 +23,7 @@ def stage_persisted_admin_resolution(
     data_source_id: UUID,
     evidence_id: UUID,
     trusted_actor_user_id: UUID,
+    session_token: str,
     reason: str,
     evidence_reference: str,
 ) -> None:
@@ -34,6 +35,7 @@ def stage_persisted_admin_resolution(
         data_source_id=data_source_id,
         evidence_id=evidence_id,
         trusted_actor_user_id=trusted_actor_user_id,
+        session_token=session_token,
         reason=reason,
         evidence_reference=evidence_reference,
     )
