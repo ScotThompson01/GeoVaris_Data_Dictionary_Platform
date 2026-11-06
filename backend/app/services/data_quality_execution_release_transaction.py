@@ -26,6 +26,9 @@ from app.services.data_quality_execution_release_integrity import (
 from app.services.data_quality_persisted_release_validation import (
     validate_persisted_admin_resolution_under_locks,
 )
+from app.services.data_quality_locked_release_session import (
+    require_locked_release_session,
+)
 from app.services.data_quality_release_reviewer_authorization import (
     require_release_reviewer_authority,
 )
@@ -67,6 +70,7 @@ def stage_locked_persisted_admin_release(
     data_source_id: UUID,
     evidence_id: UUID,
     trusted_actor_user_id: UUID,
+    session_token: str,
     reason: str,
     evidence_reference: str,
 ) -> None:
@@ -190,6 +194,15 @@ def stage_locked_persisted_admin_release(
         raise ValueError(
             "Release audit details differ from persisted evidence."
         )
+
+    # Retain the session row lock until caller commit/rollback.
+    # This check runs after capacity, evidence, actor, and reviewer
+    # locks and before any protected release state is modified.
+    require_locked_release_session(
+        db,
+        session_token=session_token,
+        expected_actor_user_id=trusted_actor_user_id,
+    )
 
     released_at = datetime.now(timezone.utc)
 

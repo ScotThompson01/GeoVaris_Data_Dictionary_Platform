@@ -572,6 +572,10 @@ def test_cross_source_reservation_is_rejected(engine):
 def test_persisted_administrator_release_is_atomic(engine):
     """Real PostgreSQL authorization checks must preserve reserved capacity."""
     from sqlalchemy.orm import Session
+    from datetime import datetime, timedelta, timezone
+    from secrets import token_urlsafe
+
+    from app.services.auth_sessions import _token_hash
 
     # Register all ORM tables before SQLAlchemy computes flush dependencies.
     import app.db.base  # noqa: F401
@@ -645,6 +649,19 @@ def test_persisted_administrator_release_is_atomic(engine):
                 username=f"p5e_{ids['user'].replace('-', '')}",
                 password_hash="fixture-only-not-a-login",
             )
+
+            # Disposable authentication session for the release actor.
+            # Only its hash is persisted, and the entire fixture rolls back.
+            session_token = token_urlsafe(32)
+
+            insert(
+                connection, "auth_sessions",
+                id=str(uuid4()),
+                user_id=ids["user"],
+                token_hash=_token_hash(session_token),
+                expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            )
+
             insert(
                 connection, "project_access",
                 id=ids["membership"],
@@ -807,6 +824,7 @@ def test_persisted_administrator_release_is_atomic(engine):
                 "data_source_id": uuid4(),
                 "evidence_id": uuid4(),
                 "trusted_actor_user_id": uuid4(),
+                "session_token": session_token,
                 "reason": "Reviewed administrator resolution",
                 "evidence_reference": "disposable-admin-evidence",
             }
@@ -952,8 +970,41 @@ def test_persisted_administrator_release_is_atomic(engine):
                         join_transaction_mode="rollback_only",
                     )
 
-            # Matching confirmed evidence and active authorization can
-            # stage the three state changes in the same transaction.
+            # Revoked and expired authentication sessions must not
+            # release capacity, even when all grants remain valid.
+            for mutation in (
+                "UPDATE auth_sessions SET revoked_at = now() "
+                "WHERE token_hash = :token_hash",
+                "UPDATE auth_sessions "
+                "SET expires_at = now() - interval '1 hour' "
+                "WHERE token_hash = :token_hash",
+            ):
+                with connection.begin_nested() as savepoint:
+                    connection.execute(
+                        text(mutation),
+                        {"token_hash": _token_hash(session_token)},
+                    )
+
+                    with pytest.raises(
+                        PermissionError,
+                        match="authenticated release session",
+                    ):
+                        stage_persisted_admin_resolution(
+                            session, **kwargs
+                        )
+
+                    assert_protected(connection)
+                    session.close()
+                    savepoint.rollback()
+
+                    session = Session(
+                        bind=connection,
+                        autoflush=False,
+                        join_transaction_mode="rollback_only",
+                    )
+
+            # Matching confirmed evidence, active authorization, and
+            # a live authenticated session may stage release atomically.
             stage_persisted_admin_resolution(session, **kwargs)
 
             ownership_state = connection.execute(
@@ -980,3 +1031,158 @@ def test_persisted_administrator_release_is_atomic(engine):
             if session is not None:
                 session.close()
             transaction.rollback()
+
+
+def test_concurrent_session_revocation_blocks_locked_validation(engine):
+    """Validation must wait for revocation and reject the committed result."""
+    from concurrent.futures import ThreadPoolExecutor
+    from datetime import datetime, timedelta, timezone
+    from secrets import token_urlsafe
+    from threading import Event
+    from time import monotonic, sleep
+    from uuid import UUID
+
+    from sqlalchemy.orm import Session
+
+    import app.db.base  # noqa: F401
+
+    from app.services.auth_sessions import _token_hash
+    from app.services.data_quality_locked_release_session import (
+        require_locked_release_session,
+    )
+
+    actor_id = uuid4()
+    token = token_urlsafe(32)
+    token_hash = _token_hash(token)
+    session_id = uuid4()
+    worker_started = Event()
+    worker_pids = []
+
+    # This test uses only its own records in the disposable database.
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO users (id, username, password_hash) "
+                "VALUES (:id, :username, :password_hash)"
+            ),
+            {
+                "id": str(actor_id),
+                "username": f"p5e_race_{actor_id.hex}",
+                "password_hash": "disposable-fixture-only",
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO auth_sessions "
+                "(id, user_id, token_hash, expires_at) "
+                "VALUES (:id, :user_id, :token_hash, :expires_at)"
+            ),
+            {
+                "id": str(session_id),
+                "user_id": str(actor_id),
+                "token_hash": token_hash,
+                "expires_at": (
+                    datetime.now(timezone.utc) + timedelta(hours=1)
+                ),
+            },
+        )
+
+    try:
+        def validate_in_worker():
+            with Session(engine, autoflush=False) as session:
+                session.execute(
+                    text("SET LOCAL lock_timeout = '5s'")
+                )
+                backend_pid = session.execute(
+                    text("SELECT pg_backend_pid()")
+                ).scalar_one()
+                worker_pids.append(backend_pid)
+                worker_started.set()
+
+                try:
+                    require_locked_release_session(
+                        session,
+                        session_token=token,
+                        expected_actor_user_id=UUID(str(actor_id)),
+                    )
+                except PermissionError:
+                    return backend_pid, "rejected"
+
+                return backend_pid, "accepted"
+
+        with engine.connect() as revoker:
+            transaction = revoker.begin()
+
+            try:
+                revoker_pid = revoker.execute(
+                    text("SELECT pg_backend_pid()")
+                ).scalar_one()
+
+                revoker.execute(
+                    text(
+                        "UPDATE auth_sessions SET revoked_at = now() "
+                        "WHERE id = :id"
+                    ),
+                    {"id": str(session_id)},
+                )
+
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(validate_in_worker)
+
+                    assert worker_started.wait(timeout=5), (
+                        "Session validation worker did not start"
+                    )
+
+                    # Require proof that PostgreSQL actually blocked the
+                    # validator on the revocation transaction's row lock.
+                    deadline = monotonic() + 4
+                    observed_lock_wait = False
+
+                    while monotonic() < deadline:
+                        blockers = revoker.execute(
+                            text(
+                                "SELECT pg_blocking_pids(:worker_pid)"
+                            ),
+                            {"worker_pid": worker_pids[0]},
+                        ).scalar_one()
+
+                        if revoker_pid in blockers:
+                            observed_lock_wait = True
+                            break
+
+                        if future.done():
+                            # Surface an early worker exception directly,
+                            # rather than reporting a misleading lock failure.
+                            future.result()
+                            break
+
+                        sleep(0.05)
+
+                    assert observed_lock_wait, (
+                        "Validator did not visibly wait on the session lock"
+                    )
+                    assert not future.done(), (
+                        "Validator finished before revocation committed"
+                    )
+
+                    transaction.commit()
+                    _, outcome = future.result(timeout=6)
+
+                    assert outcome == "rejected", (
+                        "Revoked session unexpectedly passed validation"
+                    )
+
+            finally:
+                if transaction.is_active:
+                    transaction.rollback()
+
+    finally:
+        with engine.begin() as cleanup:
+            cleanup.execute(
+                text("DELETE FROM auth_sessions WHERE id = :id"),
+                {"id": str(session_id)},
+            )
+            cleanup.execute(
+                text("DELETE FROM users WHERE id = :id"),
+                {"id": str(actor_id)},
+            )

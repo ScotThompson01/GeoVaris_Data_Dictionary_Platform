@@ -68,8 +68,29 @@ def setup_case(monkeypatch):
         data_source_id=owner.data_source_id,
         evidence_id=evidence_id,
         trusted_actor_user_id=actor_id,
+        session_token="unit-test-admin-release-session",
         reason=evidence.reason,
         evidence_reference=evidence.evidence_reference,
+    )
+
+    def validate_locked_session(
+        session, *, session_token, expected_actor_user_id
+    ):
+        assert session is db
+        assert session_token == release_kwargs["session_token"]
+        assert expected_actor_user_id == actor_id
+        assert len(session.reads) == 4
+        assert session.flush_count == 0
+        assert owner.ownership_state == "unresolved"
+        assert all(
+            item.reservation_state == "unresolved"
+            for item in reservations
+        )
+
+    monkeypatch.setattr(
+        release_core,
+        "require_locked_release_session",
+        validate_locked_session,
     )
 
     return db, owner, reservations, evidence, calls, release_kwargs
