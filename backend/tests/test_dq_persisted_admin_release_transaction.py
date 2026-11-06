@@ -7,6 +7,7 @@ import pytest
 
 from app.services import (
     data_quality_persisted_admin_release_transaction as service,
+    data_quality_execution_release_transaction as release_core,
 )
 from test_dq_execution_release_transaction import scenario
 
@@ -43,7 +44,7 @@ def setup_case(monkeypatch):
         return evidence
 
     monkeypatch.setattr(
-        service,
+        release_core,
         "validate_persisted_admin_resolution_under_locks",
         validator,
     )
@@ -56,7 +57,7 @@ def setup_case(monkeypatch):
         )
 
     monkeypatch.setattr(
-        service,
+        release_core,
         "require_release_reviewer_authority",
         check_reviewer,
     )
@@ -117,7 +118,7 @@ def test_rejected_evidence_preserves_capacity(monkeypatch, message):
         raise ValueError(message)
 
     monkeypatch.setattr(
-        service,
+        release_core,
         "validate_persisted_admin_resolution_under_locks",
         reject,
     )
@@ -203,7 +204,7 @@ def test_reviewer_authority_failure_preserves_capacity(monkeypatch):
         raise ValueError("Active installation administrator reviewer required.")
 
     monkeypatch.setattr(
-        service,
+        release_core,
         "require_release_reviewer_authority",
         reject_reviewer,
     )
@@ -232,7 +233,7 @@ def test_reviewer_project_membership_failure_preserves_capacity(
         raise ValueError("Reviewer project membership required.")
 
     monkeypatch.setattr(
-        service,
+        release_core,
         "require_release_reviewer_authority",
         reject_reviewer,
     )
@@ -258,7 +259,7 @@ def test_reviewer_identity_is_taken_from_persisted_evidence(monkeypatch):
         reviewed.append((session, reviewer_user_id, project_id, len(session.reads)))
 
     monkeypatch.setattr(
-        service,
+        release_core,
         "require_release_reviewer_authority",
         inspect_reviewer,
     )

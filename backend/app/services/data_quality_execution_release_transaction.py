@@ -23,9 +23,14 @@ from app.models.data_quality_workload_ownership import (
 from app.services.data_quality_execution_release_integrity import (
     validate_protected_workload,
 )
+from app.services.data_quality_persisted_release_validation import (
+    validate_persisted_admin_resolution_under_locks,
+)
+from app.services.data_quality_release_reviewer_authorization import (
+    require_release_reviewer_authority,
+)
 from app.services.data_quality_execution_release_policy import (
     ReleaseEvidenceType,
-    validate_release_evidence,
 )
 
 
@@ -43,38 +48,58 @@ def stage_verified_workload_release(
     administrator_authorized: bool = False,
     validate_under_locks=None,
 ) -> None:
-    """Stage release of ownership and both reservations atomically.
+    """Disabled legacy entry point; never releases capacity.
 
-    Evidence flags MUST come from a trusted internal workflow, never
-    directly from client/API request data. Not production-authorized.
-    All cooperating admission/release writers must use identical
-    lock ordering and PostgreSQL READ COMMITTED isolation.
+    Caller-supplied authorization flags and callbacks are not trusted
+    release evidence. Retained solely to reject legacy invocations.
     """
+    raise ValueError(
+        "Legacy release authorization disabled; "
+        "trusted persisted authorization is required."
+    )
 
+
+def stage_locked_persisted_admin_release(
+    db,
+    *,
+    project_id: UUID,
+    ownership_id: UUID,
+    data_source_id: UUID,
+    evidence_id: UUID,
+    trusted_actor_user_id: UUID,
+    reason: str,
+    evidence_reference: str,
+) -> None:
+    """Stage administrator release after live persisted authorization.
+
+    Internal only; not connected to runtime. The caller must establish
+    authenticated actor identity independently. The caller also owns
+    commit and rollback.
+
+    Source-termination releases are intentionally unsupported.
+    """
     for name, value in (
         ("project_id", project_id),
         ("ownership_id", ownership_id),
         ("data_source_id", data_source_id),
+        ("evidence_id", evidence_id),
+        ("trusted_actor_user_id", trusted_actor_user_id),
     ):
         if not isinstance(value, UUID):
             raise ValueError(f"Invalid {name}.")
 
-    validate_release_evidence(
-        evidence_type=evidence_type,
-        actor=actor,
-        reason=reason,
-        evidence_reference=evidence_reference,
-        source_termination_verified=source_termination_verified,
-        administrator_authorized=administrator_authorized,
-    )
-
     for name, value, limit in (
-        ("actor", actor, 255),
         ("reason", reason, 1000),
         ("evidence_reference", evidence_reference, 1000),
     ):
-        if len(value) > limit:
-            raise ValueError(f"Release {name} exceeds the storage limit.")
+        if (
+            not isinstance(value, str)
+            or not value.strip()
+            or len(value) > limit
+        ):
+            raise ValueError(f"Invalid release {name}.")
+
+    actor = str(trusted_actor_user_id)
 
     # Fixed locking order across cooperating writers:
     # installation control -> source control -> ownership -> reservations.
@@ -142,13 +167,29 @@ def stage_verified_workload_release(
     ):
         raise ValueError("Reservations reference incorrect capacity controls.")
 
-    # Additional internal checks must run after capacity and workload
-    # locks, but before any ownership or reservation state is changed.
-    # This callback never grants authorization by itself.
-    if validate_under_locks is not None:
-        if not callable(validate_under_locks):
-            raise ValueError("Invalid locked release validator.")
-        validate_under_locks(db, ownership)
+    # Authorization is compulsory and lives inside this transaction.
+    # Never substitute a caller-provided callback or Boolean.
+    evidence = validate_persisted_admin_resolution_under_locks(
+        db,
+        ownership,
+        evidence_id=evidence_id,
+        trusted_actor_user_id=trusted_actor_user_id,
+    )
+
+    require_release_reviewer_authority(
+        db,
+        reviewer_user_id=evidence.verified_by_user_id,
+        project_id=project_id,
+    )
+
+    if (
+        evidence.reason.strip() != reason.strip()
+        or evidence.evidence_reference.strip()
+        != evidence_reference.strip()
+    ):
+        raise ValueError(
+            "Release audit details differ from persisted evidence."
+        )
 
     released_at = datetime.now(timezone.utc)
 

@@ -8,7 +8,11 @@ import pytest
 from app.services.data_quality_execution_release_policy import (
     ReleaseEvidenceType,
 )
+from app.services import (
+    data_quality_execution_release_transaction as release_core,
+)
 from app.services.data_quality_execution_release_transaction import (
+    stage_locked_persisted_admin_release,
     stage_verified_workload_release,
 )
 
@@ -111,19 +115,76 @@ def scenario(state="reserved"):
         reason="Verified source termination",
         evidence_reference="verification-record-001",
         source_termination_verified=True,
+        # Test-only callback: preserves legacy transaction mechanics
+        # tests; it is not evidence of production authorization.
+        validate_under_locks=lambda session, locked_owner: None,
     )
 
     return db, ownership, reservations, kwargs
 
 
-@pytest.mark.parametrize("state", ["reserved", "unresolved"])
-def test_verified_release_stages_all_three_records(state):
-    db, owner, reservations, kwargs = scenario(state)
+def trusted_scenario(monkeypatch, state="unresolved"):
+    """Provide test-only persisted authorization for transaction mechanics."""
+    db, owner, reservations, legacy_kwargs = scenario(state)
 
-    stage_verified_workload_release(db, **kwargs)
+    actor_id = uuid4()
+    evidence_id = uuid4()
+    reviewer_id = uuid4()
+
+    kwargs = dict(
+        project_id=owner.project_id,
+        ownership_id=owner.id,
+        data_source_id=owner.data_source_id,
+        evidence_id=evidence_id,
+        trusted_actor_user_id=actor_id,
+        reason="Verified administrator resolution",
+        evidence_reference="admin-evidence-001",
+    )
+
+    def validate_evidence(session, locked_owner, **details):
+        assert session is db
+        assert locked_owner is owner
+        assert details == {
+            "evidence_id": evidence_id,
+            "trusted_actor_user_id": actor_id,
+        }
+        assert len(session.reads) == 4
+        return SimpleNamespace(
+            verified_by_user_id=reviewer_id,
+            reason=kwargs["reason"],
+            evidence_reference=kwargs["evidence_reference"],
+        )
+
+    def validate_reviewer(session, *, reviewer_user_id, project_id):
+        assert session is db
+        assert reviewer_user_id == reviewer_id
+        assert project_id == owner.project_id
+
+    monkeypatch.setattr(
+        release_core,
+        "validate_persisted_admin_resolution_under_locks",
+        validate_evidence,
+    )
+    monkeypatch.setattr(
+        release_core,
+        "require_release_reviewer_authority",
+        validate_reviewer,
+    )
+
+    return db, owner, reservations, kwargs
+
+
+@pytest.mark.parametrize("state", ["reserved", "unresolved"])
+def test_verified_release_stages_all_three_records(monkeypatch, state):
+    db, owner, reservations, kwargs = trusted_scenario(
+        monkeypatch, state
+    )
+
+    stage_locked_persisted_admin_release(db, **kwargs)
 
     assert db.flush_count == 1
     assert len(db.reads) == 4
+
     for record, field in (
         (owner, "ownership_state"),
         (reservations[0], "reservation_state"),
@@ -131,8 +192,9 @@ def test_verified_release_stages_all_three_records(state):
     ):
         assert getattr(record, field) == "released"
         assert record.released_at is not None
-        assert record.release_actor == "internal-verifier"
-        assert record.release_evidence_reference == "verification-record-001"
+        assert record.release_actor == str(kwargs["trusted_actor_user_id"])
+        assert record.release_reason == kwargs["reason"]
+        assert record.release_evidence_reference == kwargs["evidence_reference"]
 
     assert owner.released_at == reservations[0].released_at
     assert owner.released_at == reservations[1].released_at
@@ -152,18 +214,23 @@ def test_unverified_termination_preserves_capacity(state):
     assert all(r.reservation_state == state for r in reservations)
 
 
-def test_authorized_resolution_can_stage_release():
-    db, owner, reservations, kwargs = scenario("unresolved")
-    kwargs.update(
-        evidence_type=ReleaseEvidenceType.AUTHORIZED_ADMIN_RESOLUTION,
-        source_termination_verified=False,
-        administrator_authorized=True,
+def test_authorized_resolution_can_stage_release(monkeypatch):
+    """Only the persisted administrator release path stages resolution."""
+    db, owner, reservations, kwargs = trusted_scenario(
+        monkeypatch, "unresolved"
     )
 
-    stage_verified_workload_release(db, **kwargs)
+    stage_locked_persisted_admin_release(db, **kwargs)
 
+    assert db.flush_count == 1
     assert owner.ownership_state == "released"
-    assert all(r.reservation_state == "released" for r in reservations)
+    assert all(
+        reservation.reservation_state == "released"
+        for reservation in reservations
+    )
+    assert owner.release_actor == str(kwargs["trusted_actor_user_id"])
+    assert owner.release_reason == kwargs["reason"]
+    assert owner.release_evidence_reference == kwargs["evidence_reference"]
 
 
 @pytest.mark.parametrize(
@@ -231,8 +298,10 @@ def test_invalid_identity_rejected_before_database_access():
 from sqlalchemy.dialects import postgresql
 
 
-def test_release_queries_use_expected_filters_and_lock_order():
-    db, owner, reservations, kwargs = scenario("unresolved")
+def test_release_queries_use_expected_filters_and_lock_order(monkeypatch):
+    db, owner, reservations, kwargs = trusted_scenario(
+        monkeypatch, "unresolved"
+    )
     captured = []
 
     original_scalar = db.scalar
@@ -249,7 +318,7 @@ def test_release_queries_use_expected_filters_and_lock_order():
     db.scalar = capture_scalar
     db.scalars = capture_scalars
 
-    stage_verified_workload_release(db, **kwargs)
+    stage_locked_persisted_admin_release(db, **kwargs)
 
     assert len(captured) == 4
 
@@ -333,20 +402,44 @@ def test_extra_capacity_reservation_prevents_release():
 
 
 
-def test_locked_validator_failure_preserves_capacity():
-    db, owner, reservations, kwargs = scenario("unresolved")
+def test_locked_validator_failure_preserves_capacity(monkeypatch):
+    """Rejected persisted evidence cannot release protected capacity."""
+    db, owner, reservations, kwargs = trusted_scenario(
+        monkeypatch, "unresolved"
+    )
     calls = []
 
-    def reject_after_locks(session, locked_ownership):
-        calls.append((session, locked_ownership, len(session.reads)))
+    def reject_persisted_evidence(session, locked_ownership, **details):
+        calls.append(
+            (
+                session,
+                locked_ownership,
+                len(session.reads),
+                details,
+            )
+        )
         raise ValueError("Persisted authorization rejected.")
 
-    kwargs["validate_under_locks"] = reject_after_locks
+    monkeypatch.setattr(
+        release_core,
+        "validate_persisted_admin_resolution_under_locks",
+        reject_persisted_evidence,
+    )
 
     with pytest.raises(ValueError, match="authorization rejected"):
-        stage_verified_workload_release(db, **kwargs)
+        stage_locked_persisted_admin_release(db, **kwargs)
 
-    assert calls == [(db, owner, 4)]
+    assert calls == [
+        (
+            db,
+            owner,
+            4,
+            {
+                "evidence_id": kwargs["evidence_id"],
+                "trusted_actor_user_id": kwargs["trusted_actor_user_id"],
+            },
+        )
+    ]
     assert db.flush_count == 0
     assert owner.ownership_state == "unresolved"
     assert all(
@@ -355,11 +448,19 @@ def test_locked_validator_failure_preserves_capacity():
     )
 
 
-def test_locked_validator_runs_before_release_mutations():
-    db, owner, reservations, kwargs = scenario("unresolved")
+
+def test_locked_validator_runs_before_release_mutations(monkeypatch):
+    """Persisted authorization runs after locks and before mutations."""
+    db, owner, reservations, kwargs = trusted_scenario(
+        monkeypatch, "unresolved"
+    )
     observed = []
 
-    def inspect_locked_records(session, locked_ownership):
+    authorized_validator = (
+        release_core.validate_persisted_admin_resolution_under_locks
+    )
+
+    def inspect_locked_records(session, locked_ownership, **details):
         observed.append(
             (
                 len(session.reads),
@@ -367,22 +468,108 @@ def test_locked_validator_runs_before_release_mutations():
                 tuple(item.reservation_state for item in reservations),
             )
         )
+        return authorized_validator(
+            session, locked_ownership, **details
+        )
 
-    kwargs["validate_under_locks"] = inspect_locked_records
-    stage_verified_workload_release(db, **kwargs)
+    monkeypatch.setattr(
+        release_core,
+        "validate_persisted_admin_resolution_under_locks",
+        inspect_locked_records,
+    )
+
+    stage_locked_persisted_admin_release(db, **kwargs)
 
     assert observed == [
         (4, "unresolved", ("unresolved", "unresolved"))
     ]
     assert db.flush_count == 1
     assert owner.ownership_state == "released"
+    assert all(
+        item.reservation_state == "released"
+        for item in reservations
+    )
 
 
-def test_invalid_locked_validator_preserves_capacity():
+@pytest.mark.parametrize(
+    "legacy_parameter",
+    [
+        "validate_under_locks",
+        "administrator_authorized",
+        "source_termination_verified",
+    ],
+)
+def test_trusted_release_rejects_legacy_authorization_inputs(
+    monkeypatch, legacy_parameter
+):
+    """Legacy authorization inputs cannot bypass persisted evidence."""
+    db, owner, reservations, kwargs = trusted_scenario(
+        monkeypatch, "unresolved"
+    )
+
+    kwargs[legacy_parameter] = True
+
+    with pytest.raises(TypeError, match="unexpected keyword"):
+        stage_locked_persisted_admin_release(db, **kwargs)
+
+    assert db.reads == []
+    assert db.flush_count == 0
+    assert owner.ownership_state == "unresolved"
+    assert all(
+        reservation.reservation_state == "unresolved"
+        for reservation in reservations
+    )
+
+
+
+@pytest.mark.parametrize(
+    "evidence_type",
+    [
+        ReleaseEvidenceType.VERIFIED_SOURCE_TERMINATION,
+        ReleaseEvidenceType.AUTHORIZED_ADMIN_RESOLUTION,
+    ],
+)
+def test_boolean_authorization_without_persisted_validation_is_rejected(
+    evidence_type,
+):
+    """Authorization flags alone must never release reserved capacity."""
     db, owner, reservations, kwargs = scenario("unresolved")
-    kwargs["validate_under_locks"] = True
 
-    with pytest.raises(ValueError, match="Invalid locked"):
+    kwargs.update(
+        evidence_type=evidence_type,
+        source_termination_verified=(
+            evidence_type is ReleaseEvidenceType.VERIFIED_SOURCE_TERMINATION
+        ),
+        administrator_authorized=(
+            evidence_type is ReleaseEvidenceType.AUTHORIZED_ADMIN_RESOLUTION
+        ),
+        validate_under_locks=None,
+    )
+
+    with pytest.raises(ValueError, match="persisted|validation|authorization"):
+        stage_verified_workload_release(db, **kwargs)
+
+    assert db.flush_count == 0
+    assert owner.ownership_state == "unresolved"
+    assert all(
+        reservation.reservation_state == "unresolved"
+        for reservation in reservations
+    )
+
+
+
+def test_noop_validator_cannot_authorize_capacity_release():
+    """An arbitrary callback cannot establish release authorization."""
+    db, owner, reservations, kwargs = scenario("unresolved")
+
+    kwargs.update(
+        evidence_type=ReleaseEvidenceType.AUTHORIZED_ADMIN_RESOLUTION,
+        source_termination_verified=False,
+        administrator_authorized=True,
+        validate_under_locks=lambda session, ownership: None,
+    )
+
+    with pytest.raises(ValueError, match="authorization|validation|persisted"):
         stage_verified_workload_release(db, **kwargs)
 
     assert db.flush_count == 0
