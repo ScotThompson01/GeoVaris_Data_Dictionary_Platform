@@ -337,65 +337,23 @@ def execute_range_rule(
     connector=None,
     statement_timeout_ms=30000,
 ):
-    """Execute an authorized range rule and stage aggregate history.
+    """Legacy execution entry point, blocked pending protected integration.
 
-    The caller owns the database transaction and must commit or roll back.
-    Source credentials are used at runtime and are never persisted.
+    Runtime admission configuration alone never authorizes measurement.
+    A future coordinator integration must establish and verify durable
+    protection before any client-source work can begin.
     """
-    from datetime import datetime, timezone
-
-    prepared = prepare_rule_execution(
-        db,
-        project_id=project_id,
-        rule_id=rule_id,
-        actor_user_id=actor_user_id,
-    )
-
     from app.core.config import settings
-    from app.services.postgresql_execution_authorization import (
-        authorize_postgresql_execution_connection,
-        revalidate_postgresql_execution_connection,
+    from app.services.data_quality_execution_capacity_policy import (
+        ExecutionCapacityPolicyError,
+        require_execution_capacity_configuration,
     )
 
-    source = prepared.get("source")
-    if source is None or getattr(source, "id", None) is None:
-        raise ValueError("Data Quality execution requires a registered source.")
+    # Reject disabled or invalid capacity configuration before any work.
+    require_execution_capacity_configuration(settings)
 
-    snapshot = authorize_postgresql_execution_connection(
-        db,
-        data_source_id=source.id,
-        username=config.username,
-    )
-    authorized_config = snapshot.config
-
-    started_at = datetime.now(timezone.utc)
-
-    measurement = measure_prepared_range_rule(
-        prepared,
-        config=authorized_config,
-        password=password,
-        connector=connector,
-        statement_timeout_ms=statement_timeout_ms,
-        ssl_root_cert=settings.postgresql_verification_ssl_root_cert,
-    )
-
-    completed_at = datetime.now(timezone.utc)
-
-    revalidate_postgresql_execution_connection(
-        db,
-        data_source_id=source.id,
-        expected_host=snapshot.config.host,
-        expected_port=snapshot.config.port,
-        expected_database=snapshot.config.database,
-        expected_revision=snapshot.connection_revision,
-    )
-
-    return record_successful_execution(
-        db,
-        prepared=prepared,
-        project_id=project_id,
-        actor_user_id=actor_user_id,
-        measurement=measurement,
-        started_at=started_at,
-        completed_at=completed_at,
+    # Even enabled capacity configuration is not proof of committed
+    # protected admission and a verified RUNNING transition.
+    raise ExecutionCapacityPolicyError(
+        "Legacy range execution requires verified protected coordination."
     )
