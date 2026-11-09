@@ -1,4 +1,4 @@
-﻿"""Phase 5E persistence foundation for pending Data Quality executions.
+"""Phase 5E persistence foundation for pending Data Quality executions.
 
 Call only after execution authorization and metadata eligibility checks.
 The caller owns the transaction and must commit or roll back.
@@ -194,3 +194,104 @@ def stage_authorized_running_execution(
         execution=execution,
         started_at=started_at,
     )
+
+
+def stage_successful_execution_outcome(
+    db,
+    *,
+    execution: DataQualityRuleExecution,
+    measurement,
+    completed_at,
+) -> DataQualityRuleExecution:
+    """Stage RUNNING -> SUCCEEDED on the existing execution.
+
+    Internal mutation primitive only. The caller must independently
+    authorize and lock the protected execution, verify its workload
+    protection, and revalidate the source connection before calling.
+
+    This function performs no source I/O, authorization, commit,
+    execution insertion, or workload capacity release.
+    """
+    from datetime import datetime
+
+    from app.services.data_quality_execution_lifecycle import (
+        validate_execution_transition,
+    )
+
+    if execution is None:
+        raise ValueError("An existing execution record is required.")
+
+    try:
+        current_status = ExecutionStatus(execution.status)
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError("Unknown execution status.") from None
+
+    validate_execution_transition(
+        current_status,
+        ExecutionStatus.SUCCEEDED,
+    )
+
+    started_at = getattr(execution, "started_at", None)
+
+    if (
+        not isinstance(started_at, datetime)
+        or started_at.tzinfo is None
+        or started_at.utcoffset() is None
+    ):
+        raise ValueError(
+            "Running execution requires a timezone-aware start timestamp."
+        )
+
+    if (
+        not isinstance(completed_at, datetime)
+        or completed_at.tzinfo is None
+        or completed_at.utcoffset() is None
+        or completed_at < started_at
+    ):
+        raise ValueError(
+            "Execution completion must be timezone-aware and "
+            "not precede its start."
+        )
+
+    if getattr(execution, "completed_at", None) is not None:
+        raise ValueError("Execution already has a completion timestamp.")
+
+    if any(
+        getattr(execution, field, None) is not None
+        for field in (
+            "total_count",
+            "passing_count",
+            "violation_count",
+            "error_code",
+        )
+    ):
+        raise ValueError(
+            "Running execution already contains outcome data."
+        )
+
+    total = getattr(measurement, "total_count", None)
+    passing = getattr(measurement, "passing_count", None)
+    violations = getattr(measurement, "violation_count", None)
+
+    if any(
+        type(value) is not int or value < 0
+        for value in (total, passing, violations)
+    ):
+        raise ValueError(
+            "Execution counts must be nonnegative integers."
+        )
+
+    if total != passing + violations:
+        raise ValueError("Execution counts must balance.")
+
+    # All validation precedes mutation to prevent partially staged
+    # outcomes when supplied evidence is invalid.
+    execution.total_count = total
+    execution.passing_count = passing
+    execution.violation_count = violations
+    execution.completed_at = completed_at
+    execution.status = ExecutionStatus.SUCCEEDED.value
+    execution.error_code = None
+
+    db.flush()
+    return execution
