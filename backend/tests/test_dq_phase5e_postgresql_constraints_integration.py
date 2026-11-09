@@ -1886,28 +1886,87 @@ def test_admission_staging_reservation_failure_rolls_back(engine, monkeypatch, f
 
 
 
-def test_competing_admission_cannot_exceed_committed_capacity(engine):
-    """A competing admission must wait for locks and see committed capacity."""
+def _cleanup_coordinator_disposable_fixture(
+    engine, *, ids, installation_id, source_control_id, execution_grant_id
+):
+    """Remove only synthetic coordinator fixture records."""
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "DELETE FROM data_quality_execution_capacity_reservations "
+                "WHERE ownership_data_source_id = :source_id"
+            ),
+            {"source_id": ids["source_a"]},
+        )
+        connection.execute(
+            text(
+                "DELETE FROM data_quality_workload_ownership "
+                "WHERE data_source_id = :source_id"
+            ),
+            {"source_id": ids["source_a"]},
+        )
+        connection.execute(
+            text(
+                "DELETE FROM data_quality_rule_executions "
+                "WHERE project_id = :project_id"
+            ),
+            {"project_id": ids["project"]},
+        )
+        connection.execute(
+            text(
+                "DELETE FROM data_quality_execution_capacity_controls "
+                "WHERE id IN (:installation_id, :source_control_id)"
+            ),
+            {
+                "installation_id": installation_id,
+                "source_control_id": source_control_id,
+            },
+        )
+        connection.execute(
+            text(
+                "DELETE FROM data_quality_rule_versions "
+                "WHERE id = :id"
+            ),
+            {"id": ids["version"]},
+        )
+        connection.execute(
+            text("DELETE FROM data_quality_rules WHERE id = :id"),
+            {"id": ids["rule"]},
+        )
+        connection.execute(
+            text("DELETE FROM data_fields WHERE id = :id"),
+            {"id": ids["field"]},
+        )
+        connection.execute(
+            text("DELETE FROM source_objects WHERE id = :id"),
+            {"id": ids["object"]},
+        )
+        connection.execute(
+            text("DELETE FROM data_sources WHERE id = :id"),
+            {"id": ids["source_a"]},
+        )
+        connection.execute(
+            text("DELETE FROM project_access WHERE id = :id"),
+            {"id": execution_grant_id},
+        )
+        connection.execute(
+            text("DELETE FROM users WHERE id = :id"),
+            {"id": ids["user"]},
+        )
+        connection.execute(
+            text("DELETE FROM projects WHERE id = :id"),
+            {"id": ids["project"]},
+        )
+        connection.execute(
+            text("DELETE FROM clients WHERE id = :id"),
+            {"id": ids["client"]},
+        )
+
+
+def _create_coordinator_disposable_fixture(engine):
+    """Create synthetic coordinator records in disposable PostgreSQL."""
     from types import SimpleNamespace
     from uuid import UUID
-
-    from sqlalchemy.exc import OperationalError
-    from sqlalchemy.orm import Session
-
-    # Register the ORM dependency graph before flushing.
-    from app.models import data_quality_rule
-    from app.models import data_quality_rule_version
-    from app.models import data_quality_rule_execution
-    from app.models import data_quality_workload_ownership
-    from app.models import data_quality_execution_capacity_control
-    from app.models import data_quality_execution_capacity_reservation
-
-    from app.services.data_quality_execution_admission_capacity import (
-        require_locked_execution_capacity,
-    )
-    from app.services.data_quality_execution_admission_staging import (
-        stage_protected_execution_records,
-    )
 
     ids = _phase5e_fixture_ids()
     installation_id = str(uuid4())
@@ -2025,6 +2084,46 @@ def test_competing_admission_cannot_exceed_committed_capacity(engine):
         ),
     }
 
+    return (
+        ids,
+        installation_id,
+        source_control_id,
+        execution_grant_id,
+        prepared,
+    )
+
+
+def test_competing_admission_cannot_exceed_committed_capacity(engine):
+    """A competing admission must wait for locks and see committed capacity."""
+    from types import SimpleNamespace
+    from uuid import UUID
+
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.orm import Session
+
+    # Register the ORM dependency graph before flushing.
+    from app.models import data_quality_rule
+    from app.models import data_quality_rule_version
+    from app.models import data_quality_rule_execution
+    from app.models import data_quality_workload_ownership
+    from app.models import data_quality_execution_capacity_control
+    from app.models import data_quality_execution_capacity_reservation
+
+    from app.services.data_quality_execution_admission_capacity import (
+        require_locked_execution_capacity,
+    )
+    from app.services.data_quality_execution_admission_staging import (
+        stage_protected_execution_records,
+    )
+
+    (
+        ids,
+        installation_id,
+        source_control_id,
+        execution_grant_id,
+        prepared,
+    ) = _create_coordinator_disposable_fixture(engine)
+
     try:
         with Session(engine, autoflush=False) as first:
             staged = stage_protected_execution_records(
@@ -2075,6 +2174,35 @@ def test_competing_admission_cannot_exceed_committed_capacity(engine):
                     "ownership": 0,
                     "reservations": 0,
                 }, "Uncommitted admission must not be visible."
+
+            # Snapshot visibility from independent PostgreSQL sessions.
+            from app.services.data_quality_execution_coordinator_protection_snapshot import (
+                inspect_protected_execution_snapshot,
+            )
+
+            with Session(engine, autoflush=False) as snapshot_session:
+                with pytest.raises(ValueError, match="not found"):
+                    inspect_protected_execution_snapshot(
+                        snapshot_session,
+                        project_id=UUID(ids["project"]),
+                        execution_id=committed_execution_id,
+                        expected_status="pending",
+                    )
+
+            # Independent committed-protection verifier integration checks.
+            from app.services.data_quality_execution_coordinator_committed_snapshot import (
+                verify_committed_protection,
+            )
+
+            with pytest.raises(ValueError, match="not found"):
+                verify_committed_protection(
+                    session_factory=lambda: Session(
+                        engine, autoflush=False
+                    ),
+                    project_id=UUID(ids["project"]),
+                    execution_id=committed_execution_id,
+                    expected_status="pending",
+                )
 
             # Run the competing admission in another thread while
             # the first transaction still holds its capacity locks.
@@ -2144,6 +2272,26 @@ def test_competing_admission_cannot_exceed_committed_capacity(engine):
                 "reservations": 2,
             }, "All protection records must become visible after commit."
 
+        # A new session must observe committed admission protection.
+        with Session(engine, autoflush=False) as snapshot_session:
+            pending_snapshot = inspect_protected_execution_snapshot(
+                snapshot_session,
+                project_id=UUID(ids["project"]),
+                execution_id=committed_execution_id,
+                expected_status="pending",
+            )
+            assert pending_snapshot.id == committed_execution_id
+            assert pending_snapshot.status == "pending"
+
+        # Verify committed admission using a separately owned session.
+        verified_pending_id = verify_committed_protection(
+            session_factory=lambda: Session(engine, autoflush=False),
+            project_id=UUID(ids["project"]),
+            execution_id=committed_execution_id,
+            expected_status="pending",
+        )
+        assert verified_pending_id == committed_execution_id
+
         # The competing admission must now observe exhausted capacity.
         with Session(engine, autoflush=False) as competing:
             with pytest.raises(ValueError, match="capacity"):
@@ -2197,6 +2345,27 @@ def test_competing_admission_cannot_exceed_committed_capacity(engine):
                 )
                 assert started.status == "running"
 
+        # The committed RUNNING transition must also be visible,
+        # with the same reserved workload protection intact.
+        with Session(engine, autoflush=False) as snapshot_session:
+            running_snapshot = inspect_protected_execution_snapshot(
+                snapshot_session,
+                project_id=UUID(ids["project"]),
+                execution_id=committed_execution_id,
+                expected_status="running",
+            )
+            assert running_snapshot.id == committed_execution_id
+            assert running_snapshot.status == "running"
+
+        # Verify committed RUNNING protection through another new session.
+        verified_running_id = verify_committed_protection(
+            session_factory=lambda: Session(engine, autoflush=False),
+            project_id=UUID(ids["project"]),
+            execution_id=committed_execution_id,
+            expected_status="running",
+        )
+        assert verified_running_id == committed_execution_id
+
         # A separate connection must see the committed transition,
         # while workload ownership and reservations remain protected.
         with engine.connect() as observer:
@@ -2227,76 +2396,435 @@ def test_competing_admission_cannot_exceed_committed_capacity(engine):
             ).scalar_one() == 2
 
     finally:
-        # Clean up in foreign-key dependency order, only on the
-        # explicitly authorized disposable integration-test database.
-        with engine.begin() as connection:
-            connection.execute(
+        _cleanup_coordinator_disposable_fixture(
+            engine,
+            ids=ids,
+            installation_id=installation_id,
+            source_control_id=source_control_id,
+            execution_grant_id=execution_grant_id,
+        )
+
+
+def test_coordinator_commits_and_verifies_protected_admission(engine):
+    """Coordinator admission must commit before independent verification."""
+    from types import SimpleNamespace
+    from uuid import UUID
+
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.orm import Session
+
+    # Register the ORM dependency graph before flushing.
+    from app.models import data_quality_rule
+    from app.models import data_quality_rule_version
+    from app.models import data_quality_rule_execution
+    from app.models import data_quality_workload_ownership
+    from app.models import data_quality_execution_capacity_control
+    from app.models import data_quality_execution_capacity_reservation
+
+    from app.services.data_quality_execution_admission_capacity import (
+        require_locked_execution_capacity,
+    )
+    from app.services.data_quality_execution_admission_staging import (
+        stage_protected_execution_records,
+    )
+
+    (
+        ids,
+        installation_id,
+        source_control_id,
+        execution_grant_id,
+        prepared,
+    ) = _create_coordinator_disposable_fixture(engine)
+
+    try:
+        from app.services.data_quality_execution_coordinator_admission import (
+            commit_and_verify_protected_admission,
+        )
+
+        # The staging callback returns a UUID while its ORM session
+        # is still open. The coordinator owns commit and verification.
+        def stage_admission(db):
+            staged = stage_protected_execution_records(
+                db,
+                prepared=prepared,
+                project_id=UUID(ids["project"]),
+                actor_user_id=UUID(ids["user"]),
+                installation_limit=1,
+            )
+            assert staged["execution"].status == "pending"
+            return staged["execution"].id
+
+        execution_id = commit_and_verify_protected_admission(
+            session_factory=lambda: Session(engine, autoflush=False),
+            project_id=UUID(ids["project"]),
+            stage_admission=stage_admission,
+        )
+
+        assert isinstance(execution_id, UUID)
+
+        # The coordinator has returned, so this connection observes
+        # only independently committed database state.
+        with engine.connect() as observer:
+            execution_count = observer.execute(
                 text(
-                    "DELETE FROM data_quality_execution_capacity_reservations "
+                    "SELECT count(*) FROM data_quality_rule_executions "
+                    "WHERE id = :execution_id "
+                    "AND project_id = :project_id "
+                    "AND status = 'pending'"
+                ),
+                {
+                    "execution_id": str(execution_id),
+                    "project_id": ids["project"],
+                },
+            ).scalar_one()
+
+            ownership_count = observer.execute(
+                text(
+                    "SELECT count(*) FROM data_quality_workload_ownership "
+                    "WHERE execution_id = :execution_id "
+                    "AND ownership_state = 'reserved'"
+                ),
+                {"execution_id": str(execution_id)},
+            ).scalar_one()
+
+            reservation_count = observer.execute(
+                text(
+                    "SELECT count(*) "
+                    "FROM data_quality_execution_capacity_reservations "
+                    "WHERE ownership_data_source_id = :source_id "
+                    "AND reservation_state = 'reserved'"
+                ),
+                {"source_id": ids["source_a"]},
+            ).scalar_one()
+
+        assert execution_count == 1
+        assert ownership_count == 1
+        assert reservation_count == 2
+
+    finally:
+        _cleanup_coordinator_disposable_fixture(
+            engine,
+            ids=ids,
+            installation_id=installation_id,
+            source_control_id=source_control_id,
+            execution_grant_id=execution_grant_id,
+        )
+
+
+def test_coordinator_commits_and_verifies_protected_start(engine):
+    """Admission and protected start must commit in separate transactions."""
+    from types import SimpleNamespace
+    from uuid import UUID
+
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.orm import Session
+
+    # Register the ORM dependency graph before flushing.
+    from app.models import data_quality_rule
+    from app.models import data_quality_rule_version
+    from app.models import data_quality_rule_execution
+    from app.models import data_quality_workload_ownership
+    from app.models import data_quality_execution_capacity_control
+    from app.models import data_quality_execution_capacity_reservation
+
+    from app.services.data_quality_execution_admission_capacity import (
+        require_locked_execution_capacity,
+    )
+    from app.services.data_quality_execution_admission_staging import (
+        stage_protected_execution_records,
+    )
+
+    (
+        ids,
+        installation_id,
+        source_control_id,
+        execution_grant_id,
+        prepared,
+    ) = _create_coordinator_disposable_fixture(engine)
+
+    try:
+        from datetime import datetime, timezone
+
+        from app.services.data_quality_execution_coordinator_admission import (
+            commit_and_verify_protected_admission,
+        )
+        from app.services.data_quality_execution_coordinator_start import (
+            commit_and_verify_protected_start,
+        )
+        from app.services.data_quality_execution_protected_start import (
+            stage_protected_running_execution,
+        )
+
+        session_factory = lambda: Session(engine, autoflush=False)
+
+        def stage_admission(db):
+            staged = stage_protected_execution_records(
+                db,
+                prepared=prepared,
+                project_id=UUID(ids["project"]),
+                actor_user_id=UUID(ids["user"]),
+                installation_limit=1,
+            )
+            assert staged["execution"].status == "pending"
+            return staged["execution"].id
+
+        execution_id = commit_and_verify_protected_admission(
+            session_factory=session_factory,
+            project_id=UUID(ids["project"]),
+            stage_admission=stage_admission,
+        )
+
+        assert isinstance(execution_id, UUID)
+
+        def stage_start(db):
+            started = stage_protected_running_execution(
+                db,
+                project_id=UUID(ids["project"]),
+                execution_id=execution_id,
+                actor_user_id=UUID(ids["user"]),
+                started_at=datetime.now(timezone.utc),
+            )
+            assert started.status == "running"
+            return started.id
+
+        started_id = commit_and_verify_protected_start(
+            session_factory=session_factory,
+            project_id=UUID(ids["project"]),
+            execution_id=execution_id,
+            stage_start=stage_start,
+        )
+
+        assert started_id == execution_id
+
+        # Verify independently committed records, not session-local state.
+        with engine.connect() as observer:
+            status = observer.execute(
+                text(
+                    "SELECT status FROM data_quality_rule_executions "
+                    "WHERE id = :execution_id "
+                    "AND project_id = :project_id"
+                ),
+                {
+                    "execution_id": str(execution_id),
+                    "project_id": ids["project"],
+                },
+            ).scalar_one()
+
+            ownership_state = observer.execute(
+                text(
+                    "SELECT ownership_state "
+                    "FROM data_quality_workload_ownership "
+                    "WHERE execution_id = :execution_id"
+                ),
+                {"execution_id": str(execution_id)},
+            ).scalar_one()
+
+            reservation_count = observer.execute(
+                text(
+                    "SELECT count(*) "
+                    "FROM data_quality_execution_capacity_reservations "
+                    "WHERE ownership_data_source_id = :source_id "
+                    "AND reservation_state = 'reserved'"
+                ),
+                {"source_id": ids["source_a"]},
+            ).scalar_one()
+
+        assert status == "running"
+        assert ownership_state == "reserved"
+        assert reservation_count == 2
+
+    finally:
+        _cleanup_coordinator_disposable_fixture(
+            engine,
+            ids=ids,
+            installation_id=installation_id,
+            source_control_id=source_control_id,
+            execution_grant_id=execution_grant_id,
+        )
+
+
+def test_combined_coordinator_commits_and_verifies_both_stages(engine):
+    """Combined coordinator commits and verifies both protected stages."""
+    from types import SimpleNamespace
+    from uuid import UUID
+
+    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.orm import Session
+
+    # Register the ORM dependency graph before flushing.
+    from app.models import data_quality_rule
+    from app.models import data_quality_rule_version
+    from app.models import data_quality_rule_execution
+    from app.models import data_quality_workload_ownership
+    from app.models import data_quality_execution_capacity_control
+    from app.models import data_quality_execution_capacity_reservation
+
+    from app.services.data_quality_execution_admission_capacity import (
+        require_locked_execution_capacity,
+    )
+    from app.services.data_quality_execution_admission_staging import (
+        stage_protected_execution_records,
+    )
+
+    (
+        ids,
+        installation_id,
+        source_control_id,
+        execution_grant_id,
+        prepared,
+    ) = _create_coordinator_disposable_fixture(engine)
+
+    try:
+        from datetime import datetime, timezone
+
+        from app.services.data_quality_execution_coordinator_sequence import (
+            coordinate_protected_admission_and_start,
+        )
+        from app.services.data_quality_execution_protected_start import (
+            stage_protected_running_execution,
+        )
+
+        session_factory = lambda: Session(engine, autoflush=False)
+
+        def stage_admission(db):
+            staged = stage_protected_execution_records(
+                db,
+                prepared=prepared,
+                project_id=UUID(ids["project"]),
+                actor_user_id=UUID(ids["user"]),
+                installation_limit=1,
+            )
+            assert staged["execution"].status == "pending"
+            return staged["execution"].id
+
+        # The start callback must be created only after the
+        # admission coordinator has committed and verified PENDING.
+        start_factory_calls = []
+
+        def stage_start_factory(execution_id):
+            assert isinstance(execution_id, UUID)
+            start_factory_calls.append(execution_id)
+
+            def stage_start(db):
+                started = stage_protected_running_execution(
+                    db,
+                    project_id=UUID(ids["project"]),
+                    execution_id=execution_id,
+                    actor_user_id=UUID(ids["user"]),
+                    started_at=datetime.now(timezone.utc),
+                )
+                assert started.status == "running"
+                return started.id
+
+            return stage_start
+
+        execution_id = coordinate_protected_admission_and_start(
+            session_factory=session_factory,
+            project_id=UUID(ids["project"]),
+            stage_admission=stage_admission,
+            stage_start_factory=stage_start_factory,
+        )
+
+        assert isinstance(execution_id, UUID)
+        assert start_factory_calls == [execution_id]
+
+        # Observe committed state in a separate PostgreSQL connection.
+        with engine.connect() as observer:
+            execution_rows = observer.execute(
+                text(
+                    "SELECT status FROM data_quality_rule_executions "
+                    "WHERE id = :execution_id "
+                    "AND project_id = :project_id"
+                ),
+                {
+                    "execution_id": str(execution_id),
+                    "project_id": ids["project"],
+                },
+            ).all()
+
+            ownership_rows = observer.execute(
+                text(
+                    "SELECT ownership_state "
+                    "FROM data_quality_workload_ownership "
+                    "WHERE execution_id = :execution_id"
+                ),
+                {"execution_id": str(execution_id)},
+            ).all()
+
+            reservations = observer.execute(
+                text(
+                    "SELECT reservation_state "
+                    "FROM data_quality_execution_capacity_reservations "
                     "WHERE ownership_data_source_id = :source_id"
                 ),
                 {"source_id": ids["source_a"]},
+            ).all()
+
+        assert execution_rows == [("running",)]
+        assert ownership_rows == [("reserved",)]
+        assert len(reservations) == 2
+        assert all(row[0] == "reserved" for row in reservations)
+
+        # Repeated protected start must fail before staging another
+        # transition. The execution is already committed as RUNNING.
+        from app.services.data_quality_execution_coordinator_start import (
+            commit_and_verify_protected_start,
+        )
+
+        start_stage_called = []
+
+        def forbidden_second_start(db):
+            start_stage_called.append(True)
+            raise AssertionError(
+                "A second RUNNING transition must not be staged."
             )
-            connection.execute(
+
+        with pytest.raises(ValueError, match="status"):
+            commit_and_verify_protected_start(
+                session_factory=session_factory,
+                project_id=UUID(ids["project"]),
+                execution_id=execution_id,
+                stage_start=forbidden_second_start,
+            )
+
+        assert start_stage_called == []
+
+        # A fresh database connection confirms the failed attempt
+        # left the committed execution and reservations unchanged.
+        with engine.connect() as observer:
+            assert observer.execute(
                 text(
-                    "DELETE FROM data_quality_workload_ownership "
-                    "WHERE data_source_id = :source_id"
+                    "SELECT status FROM data_quality_rule_executions "
+                    "WHERE id = :execution_id"
+                ),
+                {"execution_id": str(execution_id)},
+            ).scalar_one() == "running"
+
+            assert observer.execute(
+                text(
+                    "SELECT ownership_state "
+                    "FROM data_quality_workload_ownership "
+                    "WHERE execution_id = :execution_id"
+                ),
+                {"execution_id": str(execution_id)},
+            ).scalar_one() == "reserved"
+
+            assert observer.execute(
+                text(
+                    "SELECT count(*) "
+                    "FROM data_quality_execution_capacity_reservations "
+                    "WHERE ownership_data_source_id = :source_id "
+                    "AND reservation_state = 'reserved'"
                 ),
                 {"source_id": ids["source_a"]},
-            )
-            connection.execute(
-                text(
-                    "DELETE FROM data_quality_rule_executions "
-                    "WHERE project_id = :project_id"
-                ),
-                {"project_id": ids["project"]},
-            )
-            connection.execute(
-                text(
-                    "DELETE FROM data_quality_execution_capacity_controls "
-                    "WHERE id IN (:installation_id, :source_control_id)"
-                ),
-                {
-                    "installation_id": installation_id,
-                    "source_control_id": source_control_id,
-                },
-            )
-            connection.execute(
-                text(
-                    "DELETE FROM data_quality_rule_versions "
-                    "WHERE id = :id"
-                ),
-                {"id": ids["version"]},
-            )
-            connection.execute(
-                text("DELETE FROM data_quality_rules WHERE id = :id"),
-                {"id": ids["rule"]},
-            )
-            connection.execute(
-                text("DELETE FROM data_fields WHERE id = :id"),
-                {"id": ids["field"]},
-            )
-            connection.execute(
-                text("DELETE FROM source_objects WHERE id = :id"),
-                {"id": ids["object"]},
-            )
-            connection.execute(
-                text("DELETE FROM data_sources WHERE id = :id"),
-                {"id": ids["source_a"]},
-            )
-            connection.execute(
-                text("DELETE FROM project_access WHERE id = :id"),
-                {"id": execution_grant_id},
-            )
-            connection.execute(
-                text("DELETE FROM users WHERE id = :id"),
-                {"id": ids["user"]},
-            )
-            connection.execute(
-                text("DELETE FROM projects WHERE id = :id"),
-                {"id": ids["project"]},
-            )
-            connection.execute(
-                text("DELETE FROM clients WHERE id = :id"),
-                {"id": ids["client"]},
-            )
+            ).scalar_one() == 2
+
+
+    finally:
+        _cleanup_coordinator_disposable_fixture(
+            engine,
+            ids=ids,
+            installation_id=installation_id,
+            source_control_id=source_control_id,
+            execution_grant_id=execution_grant_id,
+        )
