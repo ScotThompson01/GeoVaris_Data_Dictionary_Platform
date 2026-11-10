@@ -38,6 +38,12 @@ class DataQualityWorkloadOwnership(Base):
             "data_source_id",
             name="uq_dq_workload_id_source",
         ),
+        UniqueConstraint(
+            "execution_id",
+            "project_id",
+            "data_source_id",
+            name="uq_dq_workload_execution_project_source",
+        ),
         ForeignKeyConstraint(
             ["rule_id", "data_field_id"],
             ["data_quality_rules.id", "data_quality_rules.data_field_id"],

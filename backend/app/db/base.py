@@ -1,6 +1,7 @@
 from app.models.data_quality_rule_execution import DataQualityRuleExecution
 from app.models.data_quality_execution_capacity_control import DataQualityExecutionCapacityControl
 from app.models.data_quality_workload_ownership import DataQualityWorkloadOwnership
+from app.models.data_quality_execution_connection_authorization import DataQualityExecutionConnectionAuthorization
 from app.models.data_quality_execution_capacity_reservation import DataQualityExecutionCapacityReservation
 from app.models.data_quality_workload_resolution_grant import DataQualityWorkloadResolutionGrant
 from app.models.data_quality_workload_release_evidence import DataQualityWorkloadReleaseEvidence
@@ -42,6 +43,7 @@ __all__ = [
     "DataQualityRuleExecution",
     "DataQualityExecutionCapacityControl",
     "DataQualityWorkloadOwnership",
+    "DataQualityExecutionConnectionAuthorization",
     "DataQualityExecutionCapacityReservation",
     "DataQualityWorkloadResolutionGrant",
     "DataQualityWorkloadReleaseEvidence",
