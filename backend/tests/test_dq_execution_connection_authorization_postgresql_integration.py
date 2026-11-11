@@ -260,7 +260,7 @@ def test_postgresql_authorization_rejects_invalid_revision(
             transaction.rollback()
 
 
-def test_postgresql_authorization_linked_evidence(engine):
+def test_postgresql_authorization_linked_evidence(engine, monkeypatch):
     """Verify linked evidence, mismatched source, and duplicate rejection.
 
     All records are synthetic and remain inside a rolled-back transaction.
@@ -419,6 +419,151 @@ def test_postgresql_authorization_linked_evidence(engine):
             assert mismatch.value.orig.diag.constraint_name == (
                 "fk_dq_connection_auth_execution_source"
             )
+
+            # SERVICE_STAGING_ROLLBACK_TEST_BEGIN
+            # Exercise the actual ORM service with synthetic records.
+            from types import SimpleNamespace
+            from unittest.mock import Mock
+            from uuid import UUID
+
+            from sqlalchemy.orm import Session
+
+            from app.services import (
+                postgresql_verification_policy as policy,
+            )
+            from app.services.data_quality_execution_connection_authorization import (
+                stage_execution_connection_authorization,
+            )
+            from app.services.postgresql_execution_authorization import (
+                PostgreSQLExecutionConnectionSnapshot,
+            )
+
+            evidence_count = text(
+                "SELECT count(*) "
+                "FROM data_quality_execution_connection_authorizations "
+                "WHERE execution_id = :execution"
+            )
+
+            # Verification exists only inside this savepoint.
+            with connection.begin_nested() as service_savepoint:
+                updated = connection.execute(
+                    text(
+                        "UPDATE postgresql_connection_identities "
+                        "SET is_verified = TRUE, verified_at = now() "
+                        "WHERE data_source_id = :source"
+                    ),
+                    {"source": identifiers["source_a"]},
+                )
+
+                assert updated.rowcount == 1
+
+                registered = connection.execute(
+                    text(
+                        "SELECT host, port, database_name, "
+                        "connection_revision, is_verified, verified_at "
+                        "FROM postgresql_connection_identities "
+                        "WHERE data_source_id = :source"
+                    ),
+                    {"source": identifiers["source_a"]},
+                ).one()
+
+                assert registered.is_verified is True
+                assert registered.verified_at is not None
+
+                snapshot = PostgreSQLExecutionConnectionSnapshot(
+                    config=SimpleNamespace(
+                        host=registered.host,
+                        port=registered.port,
+                        database=registered.database_name,
+                        username="synthetic_service_test",
+                        ssl_mode="verify-full",
+                        host_address="192.0.2.10",
+                    ),
+                    connection_revision=registered.connection_revision,
+                )
+
+                # Mock external policy I/O, not database validation.
+                with monkeypatch.context() as patcher:
+                    checks = {
+                        "require_postgresql_verification_configuration": Mock(),
+                        "require_approved_postgresql_destination": Mock(),
+                        "require_postgresql_trusted_ca_file": Mock(),
+                        "resolve_approved_postgresql_ip": Mock(
+                            return_value="192.0.2.10"
+                        ),
+                    }
+
+                    for name, check in checks.items():
+                        patcher.setattr(policy, name, check)
+
+                    # Session joins the caller's transaction.
+                    with Session(
+                        bind=connection,
+                        join_transaction_mode="rollback_only",
+                    ) as db:
+                        evidence = stage_execution_connection_authorization(
+                            db,
+                            execution_id=UUID(
+                                str(identifiers["execution"])
+                            ),
+                            project_id=UUID(
+                                str(identifiers["project"])
+                            ),
+                            data_source_id=UUID(
+                                str(identifiers["source_a"])
+                            ),
+                            snapshot=snapshot,
+                        )
+
+                        assert evidence.execution_id == UUID(
+                            str(identifiers["execution"])
+                        )
+                        assert evidence.project_id == UUID(
+                            str(identifiers["project"])
+                        )
+                        assert evidence.data_source_id == UUID(
+                            str(identifiers["source_a"])
+                        )
+                        assert evidence.connection_revision == (
+                            registered.connection_revision
+                        )
+                        assert evidence.authorized_host == registered.host
+                        assert evidence.authorized_port == registered.port
+                        assert evidence.authorized_database == (
+                            registered.database_name
+                        )
+                        assert evidence.authorized_ip == "192.0.2.10"
+                        assert evidence.authorized_at is not None
+
+                    for check in checks.values():
+                        check.assert_called_once()
+
+                # Flush made evidence visible inside this transaction.
+                assert connection.execute(
+                    evidence_count,
+                    {"execution": identifiers["execution"]},
+                ).scalar_one() == 1
+
+                # Discard the staged evidence and verification change.
+                service_savepoint.rollback()
+
+            assert connection.execute(
+                evidence_count,
+                {"execution": identifiers["execution"]},
+            ).scalar_one() == 0
+
+            verification_after_rollback = connection.execute(
+                text(
+                    "SELECT is_verified, verified_at "
+                    "FROM postgresql_connection_identities "
+                    "WHERE data_source_id = :source"
+                ),
+                {"source": identifiers["source_a"]},
+            ).one()
+
+            assert verification_after_rollback.is_verified is False
+            assert verification_after_rollback.verified_at is None
+            # SERVICE_STAGING_ROLLBACK_TEST_END
 
             # Correctly linked evidence must be accepted.
             valid = {
