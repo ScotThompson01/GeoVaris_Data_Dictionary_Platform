@@ -62,7 +62,7 @@ def verify_committed_workload_ownership(
                 "Committed workload ownership identity mismatch."
             )
 
-        if ownership.ownership_state != "RESERVED":
+        if ownership.ownership_state != "reserved":
             raise CommittedWorkloadOwnershipUnavailableError(
                 "Committed workload ownership is not reserved."
             )

@@ -25,7 +25,7 @@ def make_context():
         execution_id=execution_id,
         project_id=project_id,
         data_source_id=data_source_id,
-        ownership_state="RESERVED",
+        ownership_state="reserved",
         released_at=None,
         release_actor=None,
         release_reason=None,
@@ -155,7 +155,7 @@ def test_committed_ownership_identity_mismatch_is_rejected(identity_name):
 
 @pytest.mark.parametrize(
     "state",
-    ["RELEASED", "PENDING", "ACTIVE", None, ""],
+    ["released", "unresolved", "RESERVED", "RELEASED", "PENDING", "ACTIVE", None, ""],
 )
 def test_non_reserved_ownership_is_rejected(state):
     context = make_context()
@@ -242,7 +242,7 @@ def test_session_close_failure_propagates():
 
 def test_failed_ownership_verification_still_closes_session():
     context = make_context()
-    context["ownership"].ownership_state = "RELEASED"
+    context["ownership"].ownership_state = "released"
 
     with pytest.raises(CommittedWorkloadOwnershipUnavailableError):
         invoke(context)
