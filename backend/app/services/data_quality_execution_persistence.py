@@ -125,6 +125,45 @@ def stage_running_execution(
     return execution
 
 
+def lock_existing_project_execution(
+    db,
+    *,
+    project_id: UUID,
+    execution_id: UUID,
+) -> DataQualityRuleExecution:
+    """Lock an existing project execution without authorizing the caller.
+
+    Internal transaction primitive. The caller must independently authorize
+    access and acquire installation/source capacity locks before calling.
+    This helper does not commit, release capacity, or perform source I/O.
+    """
+    from sqlalchemy import select
+
+    if not isinstance(project_id, UUID):
+        raise ValueError("Invalid project identity.")
+
+    if not isinstance(execution_id, UUID):
+        raise ValueError("Invalid execution identity.")
+
+    execution = db.scalar(
+        select(DataQualityRuleExecution)
+        .where(
+            DataQualityRuleExecution.id == execution_id,
+            DataQualityRuleExecution.project_id == project_id,
+        )
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    )
+
+    if (
+        execution is None
+        or execution.id != execution_id
+        or execution.project_id != project_id
+    ):
+        raise ValueError("Project execution is unavailable or inconsistent.")
+
+    return execution
+
 def get_authorized_locked_execution(
     db,
     *,

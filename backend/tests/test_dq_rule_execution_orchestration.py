@@ -147,7 +147,7 @@ def test_execution_denied_before_measurement_or_persistence():
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
+        "_lock_authorized_protected_start",
         side_effect=denied,
     ) as authorize, patch(
         "app.services.data_quality_execution_protected_success."
@@ -180,6 +180,7 @@ def test_execution_denied_before_measurement_or_persistence():
         project_id=project_id,
         execution_id=execution_id,
         actor_user_id=actor_user_id,
+        expected_source_id=source_id,
     )
     db.scalar.assert_not_called()
     db.scalars.assert_not_called()
@@ -682,9 +683,19 @@ def test_execution_revalidates_registered_revision_before_recording():
         data_source_id=source_id,
         ownership_state="reserved",
     )
+    installation = SimpleNamespace(id=uuid4())
+    source = SimpleNamespace(id=uuid4())
     reservations = [
-        SimpleNamespace(reservation_state="reserved"),
-        SimpleNamespace(reservation_state="reserved"),
+        SimpleNamespace(
+            reservation_state="reserved",
+            reservation_scope="installation",
+            capacity_control_id=installation.id,
+        ),
+        SimpleNamespace(
+            reservation_state="reserved",
+            reservation_scope="source",
+            capacity_control_id=source.id,
+        ),
     ]
     snapshot = SimpleNamespace(
         config=SimpleNamespace(
@@ -720,8 +731,8 @@ def test_execution_revalidates_registered_revision_before_recording():
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
-        return_value=execution,
+        "_lock_authorized_protected_start",
+        return_value=(execution, source_id, installation, source),
     ) as authorize, patch(
         "app.services.data_quality_execution_protected_success."
         "validate_protected_workload",
@@ -747,6 +758,7 @@ def test_execution_revalidates_registered_revision_before_recording():
         project_id=project_id,
         execution_id=execution_id,
         actor_user_id=actor_user_id,
+        expected_source_id=source_id,
     )
     validate.assert_called_once_with(
         ownership=ownership,
@@ -792,9 +804,19 @@ def test_execution_revalidation_uses_authorized_destination_snapshot():
         data_source_id=source_id,
         ownership_state="reserved",
     )
+    installation = SimpleNamespace(id=uuid4())
+    source = SimpleNamespace(id=uuid4())
     reservations = [
-        SimpleNamespace(reservation_state="reserved"),
-        SimpleNamespace(reservation_state="reserved"),
+        SimpleNamespace(
+            reservation_state="reserved",
+            reservation_scope="installation",
+            capacity_control_id=installation.id,
+        ),
+        SimpleNamespace(
+            reservation_state="reserved",
+            reservation_scope="source",
+            capacity_control_id=source.id,
+        ),
     ]
 
     # An unrelated caller configuration must not affect the destination
@@ -827,8 +849,8 @@ def test_execution_revalidation_uses_authorized_destination_snapshot():
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
-        return_value=execution,
+        "_lock_authorized_protected_start",
+        return_value=(execution, source_id, installation, source),
     ) as authorize, patch(
         "app.services.data_quality_execution_protected_success."
         "validate_protected_workload",
@@ -857,6 +879,7 @@ def test_execution_revalidation_uses_authorized_destination_snapshot():
         project_id=project_id,
         execution_id=execution_id,
         actor_user_id=actor_user_id,
+        expected_source_id=source_id,
     )
     validate.assert_called_once_with(
         ownership=ownership,
@@ -908,9 +931,19 @@ def test_execution_revalidation_occurs_before_success_record():
         data_source_id=source_id,
         ownership_state="reserved",
     )
+    installation = SimpleNamespace(id=uuid4())
+    source = SimpleNamespace(id=uuid4())
     reservations = [
-        SimpleNamespace(reservation_state="reserved"),
-        SimpleNamespace(reservation_state="reserved"),
+        SimpleNamespace(
+            reservation_state="reserved",
+            reservation_scope="installation",
+            capacity_control_id=installation.id,
+        ),
+        SimpleNamespace(
+            reservation_state="reserved",
+            reservation_scope="source",
+            capacity_control_id=source.id,
+        ),
     ]
     snapshot = SimpleNamespace(
         config=SimpleNamespace(
@@ -956,8 +989,8 @@ def test_execution_revalidation_occurs_before_success_record():
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
-        return_value=execution,
+        "_lock_authorized_protected_start",
+        return_value=(execution, source_id, installation, source),
     ) as authorize, patch(
         "app.services.data_quality_execution_protected_success."
         "validate_protected_workload",
@@ -989,6 +1022,7 @@ def test_execution_revalidation_occurs_before_success_record():
         project_id=project_id,
         execution_id=execution_id,
         actor_user_id=actor_user_id,
+        expected_source_id=source_id,
     )
     validate.assert_called_once_with(
         ownership=ownership,
@@ -1032,9 +1066,19 @@ def test_execution_rejects_changed_connection_before_recording():
         data_source_id=source_id,
         ownership_state="reserved",
     )
+    installation = SimpleNamespace(id=uuid4())
+    source = SimpleNamespace(id=uuid4())
     reservations = [
-        SimpleNamespace(reservation_state="reserved"),
-        SimpleNamespace(reservation_state="reserved"),
+        SimpleNamespace(
+            reservation_state="reserved",
+            reservation_scope="installation",
+            capacity_control_id=installation.id,
+        ),
+        SimpleNamespace(
+            reservation_state="reserved",
+            reservation_scope="source",
+            capacity_control_id=source.id,
+        ),
     ]
     snapshot = SimpleNamespace(
         config=SimpleNamespace(
@@ -1063,8 +1107,8 @@ def test_execution_rejects_changed_connection_before_recording():
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
-        return_value=execution,
+        "_lock_authorized_protected_start",
+        return_value=(execution, source_id, installation, source),
     ) as authorize, patch(
         "app.services.data_quality_execution_protected_success."
         "validate_protected_workload",
@@ -1098,6 +1142,7 @@ def test_execution_rejects_changed_connection_before_recording():
         project_id=project_id,
         execution_id=execution_id,
         actor_user_id=actor_user_id,
+        expected_source_id=source_id,
     )
     validate.assert_called_once_with(
         ownership=ownership,
@@ -1144,9 +1189,19 @@ def test_execution_rejects_revoked_verification_before_recording():
         data_source_id=source_id,
         ownership_state="reserved",
     )
+    installation = SimpleNamespace(id=uuid4())
+    source = SimpleNamespace(id=uuid4())
     reservations = [
-        SimpleNamespace(reservation_state="reserved"),
-        SimpleNamespace(reservation_state="reserved"),
+        SimpleNamespace(
+            reservation_state="reserved",
+            reservation_scope="installation",
+            capacity_control_id=installation.id,
+        ),
+        SimpleNamespace(
+            reservation_state="reserved",
+            reservation_scope="source",
+            capacity_control_id=source.id,
+        ),
     ]
     snapshot = SimpleNamespace(
         config=SimpleNamespace(
@@ -1175,8 +1230,8 @@ def test_execution_rejects_revoked_verification_before_recording():
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
-        return_value=execution,
+        "_lock_authorized_protected_start",
+        return_value=(execution, source_id, installation, source),
     ) as authorize, patch(
         "app.services.data_quality_execution_protected_success."
         "validate_protected_workload",
@@ -1210,6 +1265,7 @@ def test_execution_rejects_revoked_verification_before_recording():
         project_id=project_id,
         execution_id=execution_id,
         actor_user_id=actor_user_id,
+        expected_source_id=source_id,
     )
     validate.assert_called_once_with(
         ownership=ownership,
@@ -1256,9 +1312,19 @@ def test_execution_revalidation_failure_never_records_success():
         data_source_id=source_id,
         ownership_state="reserved",
     )
+    installation = SimpleNamespace(id=uuid4())
+    source = SimpleNamespace(id=uuid4())
     reservations = [
-        SimpleNamespace(reservation_state="reserved"),
-        SimpleNamespace(reservation_state="reserved"),
+        SimpleNamespace(
+            reservation_state="reserved",
+            reservation_scope="installation",
+            capacity_control_id=installation.id,
+        ),
+        SimpleNamespace(
+            reservation_state="reserved",
+            reservation_scope="source",
+            capacity_control_id=source.id,
+        ),
     ]
     snapshot = SimpleNamespace(
         config=SimpleNamespace(
@@ -1278,8 +1344,8 @@ def test_execution_revalidation_failure_never_records_success():
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
-        return_value=execution,
+        "_lock_authorized_protected_start",
+        return_value=(execution, source_id, installation, source),
     ) as authorize, patch(
         "app.services.data_quality_execution_protected_success."
         "validate_protected_workload",
@@ -1313,6 +1379,7 @@ def test_execution_revalidation_failure_never_records_success():
         project_id=project_id,
         execution_id=execution_id,
         actor_user_id=actor_user_id,
+        expected_source_id=source_id,
     )
     validate.assert_called_once_with(
         ownership=ownership,

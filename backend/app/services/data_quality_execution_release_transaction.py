@@ -11,8 +11,11 @@ from uuid import UUID
 
 from sqlalchemy import select
 
-from app.models.data_quality_execution_capacity_control import (
-    DataQualityExecutionCapacityControl as CapacityControl,
+from app.services.data_quality_execution_capacity_locks import (
+    lock_existing_execution_capacity_controls,
+)
+from app.services.data_quality_execution_persistence import (
+    lock_existing_project_execution,
 )
 from app.models.data_quality_execution_capacity_reservation import (
     DataQualityExecutionCapacityReservation as Reservation,
@@ -106,31 +109,47 @@ def stage_locked_persisted_admin_release(
     actor = str(trusted_actor_user_id)
 
     # Fixed locking order across cooperating writers:
-    # installation control -> source control -> ownership -> reservations.
-    installation = db.scalar(
-        select(CapacityControl)
-        .where(CapacityControl.scope_type == "installation")
-        .execution_options(populate_existing=True)
-        .with_for_update()
+    # installation control -> source control -> execution -> ownership -> reservations.
+    installation, source = lock_existing_execution_capacity_controls(
+        db,
+        data_source_id=data_source_id,
     )
-    if installation is None or installation.data_source_id is not None:
-        raise ValueError("Installation capacity control is unavailable.")
 
-    source = db.scalar(
-        select(CapacityControl)
-        .where(
-            CapacityControl.scope_type == "source",
-            CapacityControl.data_source_id == data_source_id,
+    # Locate ownership's execution without locking ownership first.
+    # Revalidate the identity after acquiring the ownership row lock.
+    execution_id = db.scalar(
+        select(Ownership.execution_id).where(
+            Ownership.id == ownership_id,
+            Ownership.project_id == project_id,
+            Ownership.data_source_id == data_source_id,
         )
-        .execution_options(populate_existing=True)
-        .with_for_update()
     )
+    if not isinstance(execution_id, UUID):
+        raise ValueError("Release execution identity is unavailable.")
+
+    execution = lock_existing_project_execution(
+        db,
+        project_id=project_id,
+        execution_id=execution_id,
+    )
+
     if (
-        source is None
-        or source.scope_type != "source"
-        or source.data_source_id != data_source_id
+        execution.status != "pending"
+        or execution.started_at is not None
+        or execution.completed_at is not None
+        or any(
+            getattr(execution, field, None) is not None
+            for field in (
+                "total_count",
+                "passing_count",
+                "violation_count",
+                "error_code",
+            )
+        )
     ):
-        raise ValueError("Source capacity control is unavailable.")
+        raise ValueError(
+            "Administrative release requires a never-started pending execution."
+        )
 
     ownership = db.scalar(
         select(Ownership)
@@ -145,11 +164,19 @@ def stage_locked_persisted_admin_release(
     if ownership is None:
         raise ValueError("Workload ownership was not found.")
 
+    if (
+        ownership.execution_id != execution.id
+        or ownership.project_id != execution.project_id
+        or ownership.rule_id != execution.rule_id
+        or ownership.data_source_id != data_source_id
+    ):
+        raise ValueError("Release execution and ownership identity mismatch.")
+
     reservations = list(
         db.scalars(
             select(Reservation)
             .where(Reservation.ownership_id == ownership_id)
-            .order_by(Reservation.reservation_scope, Reservation.id)
+            .order_by(Reservation.id)
             .execution_options(populate_existing=True)
             .with_for_update()
         ).all()

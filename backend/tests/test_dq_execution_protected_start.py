@@ -63,11 +63,34 @@ def fixture():
 
 
 def setup_mocks(monkeypatch, execution, ownership, reservations):
-    authorize = Mock(return_value=execution)
+    installation = SimpleNamespace(id=uuid4())
+    source = SimpleNamespace(id=uuid4())
+
+    for reservation in reservations:
+        if reservation.reservation_scope == "installation":
+            reservation.capacity_control_id = installation.id
+        elif reservation.reservation_scope == "source":
+            reservation.capacity_control_id = source.id
+
+    source_id = (
+        ownership.data_source_id
+        if ownership is not None
+        else next(
+            (
+                reservation.ownership_data_source_id
+                for reservation in reservations
+            ),
+            uuid4(),
+        )
+    )
+
+    authorize = Mock(
+        return_value=(execution, source_id, installation, source)
+    )
     transition = Mock(return_value=execution)
 
     monkeypatch.setattr(
-        start, "get_authorized_locked_execution", authorize
+        start, "_lock_authorized_protected_start", authorize
     )
     monkeypatch.setattr(
         start, "stage_running_execution", transition
@@ -78,7 +101,6 @@ def setup_mocks(monkeypatch, execution, ownership, reservations):
     db.scalars.return_value.all.return_value = reservations
 
     return db, authorize, transition
-
 
 def invoke(db, execution):
     return start.stage_protected_running_execution(
@@ -194,3 +216,36 @@ def test_authorization_failure_prevents_protection_queries(monkeypatch):
 
     assert db.mock_calls == []
     transition.assert_not_called()
+
+def test_protected_start_reservation_query_orders_by_id():
+    """Document the current locked reservation query ordering."""
+    from sqlalchemy.dialects import postgresql
+
+    execution, ownership, reservations = fixture()
+    db = Mock()
+    db.scalar.return_value = ownership
+    db.scalars.return_value.all.return_value = reservations
+
+    installation = SimpleNamespace(id=reservations[0].capacity_control_id)
+    source = SimpleNamespace(id=reservations[1].capacity_control_id)
+
+    start._validate_locked_protected_workload(
+        db,
+        execution=execution,
+        project_id=execution.project_id,
+        execution_id=execution.id,
+        expected_source_id=ownership.data_source_id,
+        installation_control=installation,
+        source_control=source,
+    )
+
+    statement = db.scalars.call_args.args[0]
+    sql = str(statement.compile(dialect=postgresql.dialect()))
+
+    assert statement._for_update_arg is not None
+    assert "ORDER BY" in sql
+    assert "data_quality_execution_capacity_reservations.id" in sql
+    assert "reservation_scope" not in sql.split("ORDER BY", 1)[1]
+
+    db.commit.assert_not_called()
+    db.rollback.assert_not_called()

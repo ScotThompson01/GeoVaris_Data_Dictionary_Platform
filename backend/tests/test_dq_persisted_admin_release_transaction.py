@@ -79,7 +79,7 @@ def setup_case(monkeypatch):
         assert session is db
         assert session_token == release_kwargs["session_token"]
         assert expected_actor_user_id == actor_id
-        assert len(session.reads) == 4
+        assert len(session.reads) == 6
         assert session.flush_count == 0
         assert owner.ownership_state == "unresolved"
         assert all(
@@ -106,7 +106,7 @@ def test_valid_evidence_stages_release_under_locks(monkeypatch):
     assert len(calls) == 1
     assert calls[0][0] is db
     assert calls[0][1] is owner
-    assert calls[0][2] == 4
+    assert calls[0][2] == 6
     assert calls[0][3] == ("unresolved", "unresolved")
     assert calls[0][4] == {
         "evidence_id": kwargs["evidence_id"],
@@ -148,7 +148,7 @@ def test_rejected_evidence_preserves_capacity(monkeypatch, message):
         service.stage_persisted_admin_resolution(db, **kwargs)
 
     assert str(exc_info.value) == message
-    assert len(db.reads) == 4
+    assert len(db.reads) == 6
     assert db.flush_count == 0
     assert owner.ownership_state == "unresolved"
     assert all(
@@ -234,7 +234,7 @@ def test_reviewer_authority_failure_preserves_capacity(monkeypatch):
         service.stage_persisted_admin_resolution(db, **kwargs)
 
     assert len(calls) == 1
-    assert len(db.reads) == 4
+    assert len(db.reads) == 6
     assert db.flush_count == 0
     assert owner.ownership_state == "unresolved"
     assert all(
@@ -288,6 +288,6 @@ def test_reviewer_identity_is_taken_from_persisted_evidence(monkeypatch):
     service.stage_persisted_admin_resolution(db, **kwargs)
 
     assert reviewed == [
-        (db, evidence.verified_by_user_id, owner.project_id, 4)
+        (db, evidence.verified_by_user_id, owner.project_id, 6)
     ]
     assert db.flush_count == 1

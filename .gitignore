@@ -9,3 +9,6 @@ node_modules/
 .next/
 coverage.xml
 htmlcov/
+
+# Phase 5E disposable test recovery manifests
+/.phase5e-test-recovery/

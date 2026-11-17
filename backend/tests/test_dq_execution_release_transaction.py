@@ -27,14 +27,30 @@ class FakeResult:
 
 class FakeSession:
     def __init__(self, installation, source, ownership, reservations):
-        self.locked_records = [installation, source, ownership]
+        self.execution = SimpleNamespace(
+            id=ownership.execution_id,
+            project_id=ownership.project_id,
+            rule_id=ownership.rule_id,
+            status="pending",
+            started_at=None,
+            completed_at=None,
+            total_count=None,
+            passing_count=None,
+            violation_count=None,
+            error_code=None,
+        )
+        self.locked_records = [
+            installation, source, self.execution, ownership
+        ]
         self.reservations = reservations
         self.reads = []
         self.flush_count = 0
 
     def scalar(self, statement):
-        assert statement._for_update_arg is not None
-        self.reads.append("control_or_ownership")
+        if statement._for_update_arg is None:
+            self.reads.append("execution_locator")
+            return self.execution.id
+        self.reads.append("locked_row")
         return self.locked_records.pop(0)
 
     def scalars(self, statement):
@@ -60,7 +76,9 @@ def scenario(state="reserved"):
 
     ownership = SimpleNamespace(
         id=owner_id,
+        execution_id=uuid4(),
         project_id=project_id,
+        rule_id=uuid4(),
         data_source_id=source_id,
         ownership_state=state,
         **audit_fields(),
@@ -69,11 +87,13 @@ def scenario(state="reserved"):
         id=installation_id,
         scope_type="installation",
         data_source_id=None,
+        max_concurrent=1,
     )
     source_control = SimpleNamespace(
         id=source_control_id,
         scope_type="source",
         data_source_id=source_id,
+        max_concurrent=1,
     )
 
     reservations = [
@@ -149,7 +169,7 @@ def trusted_scenario(monkeypatch, state="unresolved"):
             "evidence_id": evidence_id,
             "trusted_actor_user_id": actor_id,
         }
-        assert len(session.reads) == 4
+        assert len(session.reads) == 6
         return SimpleNamespace(
             verified_by_user_id=reviewer_id,
             reason=kwargs["reason"],
@@ -178,7 +198,7 @@ def trusted_scenario(monkeypatch, state="unresolved"):
         assert session is db
         assert session_token == kwargs["session_token"]
         assert expected_actor_user_id == actor_id
-        assert len(session.reads) == 4
+        assert len(session.reads) == 6
         assert session.flush_count == 0
         assert owner.ownership_state == state
         assert all(
@@ -203,7 +223,7 @@ def test_verified_release_stages_all_three_records(monkeypatch, state):
     stage_locked_persisted_admin_release(db, **kwargs)
 
     assert db.flush_count == 1
-    assert len(db.reads) == 4
+    assert len(db.reads) == 6
 
     for record, field in (
         (owner, "ownership_state"),
@@ -340,15 +360,18 @@ def test_release_queries_use_expected_filters_and_lock_order(monkeypatch):
 
     stage_locked_persisted_admin_release(db, **kwargs)
 
-    assert len(captured) == 4
+    assert len(captured) == 6
 
     compiled = [
         statement.compile(dialect=postgresql.dialect())
         for statement in captured
     ]
 
-    for statement in captured:
-        assert statement._for_update_arg is not None
+    for index, statement in enumerate(captured):
+        if index == 2:
+            assert statement._for_update_arg is None
+        else:
+            assert statement._for_update_arg is not None
 
     sql = [str(item) for item in compiled]
 
@@ -358,15 +381,25 @@ def test_release_queries_use_expected_filters_and_lock_order(monkeypatch):
     assert "data_source_id" in sql[1]
 
     assert "data_quality_workload_ownership" in sql[2]
-    assert "project_id" in sql[2]
-    assert "data_source_id" in sql[2]
-    assert "data_quality_execution_capacity_reservations" in sql[3]
-    assert "ownership_id" in sql[3]
+    assert "execution_id" in sql[2]
+    assert "data_quality_rule_executions" in sql[3]
+    assert "FOR UPDATE" in sql[3]
+    assert "data_quality_workload_ownership" in sql[4]
+    assert "FOR UPDATE" in sql[4]
+    assert "data_quality_execution_capacity_reservations" in sql[5]
+    assert "ownership_id" in sql[5]
 
     assert kwargs["data_source_id"] in compiled[1].params.values()
     assert kwargs["project_id"] in compiled[2].params.values()
     assert kwargs["ownership_id"] in compiled[2].params.values()
-    assert kwargs["ownership_id"] in compiled[3].params.values()
+    assert kwargs["project_id"] in compiled[3].params.values()
+    assert kwargs["ownership_id"] in compiled[4].params.values()
+    assert kwargs["ownership_id"] in compiled[5].params.values()
+
+    assert "ORDER BY" in sql[5]
+    reservation_order = sql[5].split("ORDER BY", 1)[1]
+    assert "data_quality_execution_capacity_reservations.id" in reservation_order
+    assert "reservation_scope" not in reservation_order
 
 
 @pytest.mark.parametrize(
@@ -453,7 +486,7 @@ def test_locked_validator_failure_preserves_capacity(monkeypatch):
         (
             db,
             owner,
-            4,
+            6,
             {
                 "evidence_id": kwargs["evidence_id"],
                 "trusted_actor_user_id": kwargs["trusted_actor_user_id"],
@@ -501,7 +534,7 @@ def test_locked_validator_runs_before_release_mutations(monkeypatch):
     stage_locked_persisted_admin_release(db, **kwargs)
 
     assert observed == [
-        (4, "unresolved", ("unresolved", "unresolved"))
+        (6, "unresolved", ("unresolved", "unresolved"))
     ]
     assert db.flush_count == 1
     assert owner.ownership_state == "released"
@@ -591,6 +624,77 @@ def test_noop_validator_cannot_authorize_capacity_release():
 
     with pytest.raises(ValueError, match="authorization|validation|persisted"):
         stage_verified_workload_release(db, **kwargs)
+
+    assert db.flush_count == 0
+    assert owner.ownership_state == "unresolved"
+    assert all(
+        reservation.reservation_state == "unresolved"
+        for reservation in reservations
+    )
+
+@pytest.mark.parametrize(
+    "execution_changes",
+    [
+        {"status": "running"},
+        {"status": "succeeded"},
+        {"status": "failed"},
+        {"status": "incomplete"},
+        {"status": "status_uncertain"},
+        {"status": "cancelled"},
+        {"started_at": "previously-started"},
+        {"completed_at": "previously-completed"},
+        {"total_count": 0},
+        {"passing_count": 0},
+        {"violation_count": 0},
+        {"error_code": "SOURCE_ERROR"},
+    ],
+)
+def test_admin_release_rejects_started_or_inconsistent_execution(
+    monkeypatch, execution_changes
+):
+    """Administrative resolution cannot release a non-pristine execution."""
+    db, owner, reservations, kwargs = trusted_scenario(
+        monkeypatch, "unresolved"
+    )
+
+    for field, value in execution_changes.items():
+        setattr(db.execution, field, value)
+
+    with pytest.raises(
+        ValueError,
+        match="never-started pending execution",
+    ):
+        stage_locked_persisted_admin_release(db, **kwargs)
+
+    assert db.flush_count == 0
+    assert owner.ownership_state == "unresolved"
+    assert owner.released_at is None
+    assert all(
+        reservation.reservation_state == "unresolved"
+        and reservation.released_at is None
+        for reservation in reservations
+    )
+
+    # Rejection occurs after capacity and execution locks,
+    # before ownership and reservation locks.
+    assert len(db.reads) == 4
+
+
+def test_admin_release_rejects_execution_ownership_identity_mismatch(
+    monkeypatch,
+):
+    """A mismatched locked execution cannot authorize capacity release."""
+    db, owner, reservations, kwargs = trusted_scenario(
+        monkeypatch, "unresolved"
+    )
+
+    db.execution.rule_id = uuid4()
+
+    with pytest.raises(
+        ValueError,
+        match="execution and ownership identity mismatch",
+    ):
+        stage_locked_persisted_admin_release(db, **kwargs)
 
     assert db.flush_count == 0
     assert owner.ownership_state == "unresolved"
