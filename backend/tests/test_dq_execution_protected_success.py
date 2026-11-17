@@ -38,14 +38,19 @@ def make_context():
         data_source_id=source_id,
         ownership_state="reserved",
     )
+    installation = SimpleNamespace(id=uuid4())
+    source = SimpleNamespace(id=uuid4())
+
     reservations = [
         SimpleNamespace(
             reservation_state="reserved",
             reservation_scope="installation",
+            capacity_control_id=installation.id,
         ),
         SimpleNamespace(
             reservation_state="reserved",
             reservation_scope="source",
+            capacity_control_id=source.id,
         ),
     ]
     snapshot = SimpleNamespace(
@@ -62,6 +67,8 @@ def make_context():
         actor_user_id=actor_user_id,
         source_id=source_id,
         execution=execution,
+        installation=installation,
+        source=source,
         ownership=ownership,
         reservations=reservations,
         snapshot=snapshot,
@@ -98,9 +105,9 @@ def test_protection_and_connection_checks_precede_outcome_staging():
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
+        "_lock_authorized_protected_start",
         side_effect=lambda *a, **k: (
-            calls.append("authorize_and_lock") or ctx.execution
+            calls.append("authorize_and_lock") or (ctx.execution, ctx.source_id, ctx.installation, ctx.source)
         ),
     ) as authorize, patch(
         "app.services.data_quality_execution_protected_success."
@@ -160,8 +167,8 @@ def test_nonreserved_ownership_blocks_success(state):
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
-        return_value=ctx.execution,
+        "_lock_authorized_protected_start",
+        return_value=(ctx.execution, ctx.source_id, ctx.installation, ctx.source),
     ), patch(
         "app.services.data_quality_execution_protected_success."
         "validate_protected_workload",
@@ -189,8 +196,8 @@ def test_mismatched_source_blocks_revalidation_and_staging():
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
-        return_value=ctx.execution,
+        "_lock_authorized_protected_start",
+        return_value=(ctx.execution, ctx.source_id, ctx.installation, ctx.source),
     ), patch(
         "app.services.data_quality_execution_protected_success."
         "validate_protected_workload",
@@ -217,8 +224,8 @@ def test_connection_revalidation_failure_prevents_success():
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
-        return_value=ctx.execution,
+        "_lock_authorized_protected_start",
+        return_value=(ctx.execution, ctx.source_id, ctx.installation, ctx.source),
     ), patch(
         "app.services.data_quality_execution_protected_success."
         "validate_protected_workload",
@@ -245,8 +252,8 @@ def test_missing_ownership_prevents_revalidation_and_staging():
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
-        return_value=ctx.execution,
+        "_lock_authorized_protected_start",
+        return_value=(ctx.execution, ctx.source_id, ctx.installation, ctx.source),
     ), patch(
         "app.services.data_quality_execution_protected_success."
         "revalidate_postgresql_execution_connection",
@@ -322,8 +329,8 @@ def test_nonreserved_reservation_blocks_success(reservation_state):
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
-        return_value=ctx.execution,
+        "_lock_authorized_protected_start",
+        return_value=(ctx.execution, ctx.source_id, ctx.installation, ctx.source),
     ), patch(
         "app.services.data_quality_execution_protected_success."
         "validate_protected_workload",
@@ -356,8 +363,8 @@ def test_ownership_identity_mismatch_blocks_success(field):
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
-        return_value=ctx.execution,
+        "_lock_authorized_protected_start",
+        return_value=(ctx.execution, ctx.source_id, ctx.installation, ctx.source),
     ), patch(
         "app.services.data_quality_execution_protected_success."
         "revalidate_postgresql_execution_connection",
@@ -380,7 +387,7 @@ def test_authorization_failure_blocks_protection_queries():
 
     with patch(
         "app.services.data_quality_execution_protected_success."
-        "get_authorized_locked_execution",
+        "_lock_authorized_protected_start",
         side_effect=denied,
     ), patch(
         "app.services.data_quality_execution_protected_success."
@@ -398,3 +405,69 @@ def test_authorization_failure_blocks_protection_queries():
     revalidate.assert_not_called()
     stage.assert_not_called()
     db.commit.assert_not_called()
+
+def test_protected_success_uses_coordinated_lock_before_workload_and_connection():
+    """Capacity-first helper precedes ownership, connection, and staging."""
+    ctx = make_context()
+    events = []
+
+    db = Mock()
+
+    def load_ownership(*args, **kwargs):
+        events.append("ownership")
+        return ctx.ownership
+
+    def load_reservations(*args, **kwargs):
+        events.append("reservations")
+        result = Mock()
+        result.all.return_value = ctx.reservations
+        return result
+
+    db.scalar.side_effect = load_ownership
+    db.scalars.side_effect = load_reservations
+
+    with patch(
+        "app.services.data_quality_execution_protected_success."
+        "_lock_authorized_protected_start",
+        side_effect=lambda *a, **k: (
+            events.append("capacity_then_execution"),
+            (ctx.execution, ctx.source_id, ctx.installation, ctx.source),
+        )[1],
+    ) as coordinated, patch(
+        "app.services.data_quality_execution_protected_success."
+        "validate_protected_workload",
+        side_effect=lambda **k: events.append("validate_workload"),
+    ), patch(
+        "app.services.data_quality_execution_protected_success."
+        "revalidate_postgresql_execution_connection",
+        side_effect=lambda *a, **k: events.append("connection"),
+    ), patch(
+        "app.services.data_quality_execution_protected_success."
+        "stage_successful_execution_outcome",
+        side_effect=lambda *a, **k: (
+            events.append("stage_success"),
+            ctx.execution,
+        )[1],
+    ):
+        result = invoke(db, ctx)
+
+    assert result is ctx.execution
+    assert events == [
+        "capacity_then_execution",
+        "ownership",
+        "reservations",
+        "validate_workload",
+        "connection",
+        "stage_success",
+    ]
+
+    coordinated.assert_called_once_with(
+        db,
+        project_id=ctx.project_id,
+        execution_id=ctx.execution_id,
+        actor_user_id=ctx.actor_user_id,
+        expected_source_id=ctx.source_id,
+    )
+
+    db.commit.assert_not_called()
+    db.delete.assert_not_called()

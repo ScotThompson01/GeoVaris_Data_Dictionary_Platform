@@ -22,8 +22,10 @@ from app.models.data_quality_workload_ownership import (
     DataQualityWorkloadOwnership,
 )
 from app.services.data_quality_execution_persistence import (
-    get_authorized_locked_execution,
     stage_successful_execution_outcome,
+)
+from app.services.data_quality_execution_protected_start import (
+    _lock_authorized_protected_start,
 )
 from app.services.data_quality_execution_release_integrity import (
     validate_protected_workload,
@@ -90,13 +92,16 @@ def stage_protected_successful_execution(
     ):
         raise ValueError("Invalid connection authorization snapshot.")
 
-    # Authorization and execution-row locking must occur before
-    # protected ownership and reservation inspection.
-    execution = get_authorized_locked_execution(
-        db,
-        project_id=project_id,
-        execution_id=execution_id,
-        actor_user_id=actor_user_id,
+    # Authorize first; lock installation, source, then execution.
+    # Ownership and reservations are revalidated under their own locks.
+    execution, source_id, installation, source = (
+        _lock_authorized_protected_start(
+            db,
+            project_id=project_id,
+            execution_id=execution_id,
+            actor_user_id=actor_user_id,
+            expected_source_id=expected_source_id,
+        )
     )
 
     if (
@@ -112,6 +117,7 @@ def stage_protected_successful_execution(
             DataQualityWorkloadOwnership.execution_id == execution_id,
             DataQualityWorkloadOwnership.project_id == project_id,
         )
+        .execution_options(populate_existing=True)
         .with_for_update()
     )
 
@@ -141,6 +147,7 @@ def stage_protected_successful_execution(
                 == ownership.id
             )
             .order_by(DataQualityExecutionCapacityReservation.id)
+            .execution_options(populate_existing=True)
             .with_for_update()
         ).all()
     )
@@ -161,6 +168,18 @@ def stage_protected_successful_execution(
             "Successful execution requires two reserved capacity records."
         )
 
+    by_scope = {
+        reservation.reservation_scope: reservation
+        for reservation in reservations
+    }
+
+    if (
+        by_scope["installation"].capacity_control_id != installation.id
+        or by_scope["source"].capacity_control_id != source.id
+    ):
+        raise ValueError(
+            "Protected success capacity control identity mismatch."
+        )
     # The registered connection is revalidated under its own row lock
     # before any successful-outcome mutation.
     revalidate_postgresql_execution_connection(
