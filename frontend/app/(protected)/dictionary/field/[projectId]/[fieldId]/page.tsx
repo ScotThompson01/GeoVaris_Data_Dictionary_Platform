@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import FieldGovernancePanel from "../../../../../../components/FieldGovernancePanel";
 import FieldTechnicalMetadataPanel from "../../../../../../components/FieldTechnicalMetadataPanel";
 import FieldProfilingPanel from "../../../../../../components/FieldProfilingPanel";
+import FieldQualityDashboard from "../../../../../../components/FieldQualityDashboard";
 
 import {
   getDictionaryFields,
@@ -125,38 +126,10 @@ export default function FieldGovernancePage() {
 
       {!loading && selection && (
         <div className="field-governance-workspace">
-          <section className="card">
-            <h2>Data Quality Dashboard</h2>
-            <p>
-              Field-level Data Quality measurements will
-              appear here when available.
-            </p>
-
-            <div className="field-quality-grid">
-              {[
-                "Overall Data Quality",
-                "Completeness",
-                "Validity",
-                "Uniqueness",
-                "Consistency",
-                "Accuracy",
-                "Timeliness",
-              ].map((dimension) => (
-                <article
-                  className="field-quality-metric"
-                  key={dimension}
-                >
-                  <h3>{dimension}</h3>
-                  <strong>Not measured</strong>
-                </article>
-              ))}
-            </div>
-
-            <p className="field-subtext">
-              Accuracy requires validation against a
-              trusted reference source.
-            </p>
-          </section>
+          <FieldQualityDashboard
+            key={selection.field.field_id}
+            field={selection.field}
+          />
 
           <FieldGovernancePanel
             key={selection.field.field_id}
