@@ -1,12 +1,17 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCurrentUserId } from "../../../../components/CurrentUserContext";
+import {
+  getDefaultProject,
+  setDefaultProject,
+  clearDefaultProject,
+} from "../../../../lib/project-preferences";
+
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-import FieldGovernancePanel from "../../../../components/FieldGovernancePanel";
-import FieldProfilingPanel from "../../../../components/FieldProfilingPanel";
-import FieldTechnicalMetadataPanel from "../../../../components/FieldTechnicalMetadataPanel";
 import {
   exportDictionary,
   getDictionaryFields,
@@ -19,6 +24,10 @@ import type {
 import type { DictionaryField, Project } from "../../../../lib/types";
 
 export default function DictionaryPage() {
+  const router = useRouter();
+  const userId = useCurrentUserId();
+  const [defaultProjectId, setDefaultProjectId] = useState<string | null>(null);
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
 
@@ -52,6 +61,18 @@ export default function DictionaryPage() {
 
         if (active) {
           setProjects(results);
+
+          const savedProjectId = getDefaultProject(userId);
+
+          if (
+            savedProjectId &&
+            results.some((project) => project.id === savedProjectId)
+          ) {
+            setDefaultProjectId(savedProjectId);
+            changeProject(savedProjectId);
+          } else {
+            setDefaultProjectId(null);
+          }
         }
       } catch {
         if (active) {
@@ -114,6 +135,41 @@ export default function DictionaryPage() {
         setLoadingFields(false);
       }
     }
+  }
+
+  function saveProjectPreference() {
+    if (
+      !selectedProjectId ||
+      !projects.some((project) => project.id === selectedProjectId)
+    ) {
+      return;
+    }
+
+    if (setDefaultProject(userId, selectedProjectId)) {
+      setDefaultProjectId(selectedProjectId);
+      setProjectMessage("Default project saved.");
+    } else {
+      setProjectMessage("Unable to save default project.");
+    }
+  }
+
+  function removeProjectPreference() {
+    if (clearDefaultProject(userId)) {
+      setDefaultProjectId(null);
+      setProjectMessage("Default project cleared.");
+    } else {
+      setProjectMessage("Unable to clear default project.");
+    }
+  }
+
+  function openFieldGovernance(field: DictionaryField) {
+    if (!selectedProjectId) {
+      return;
+    }
+
+    router.push(
+      `/dictionary/field/${encodeURIComponent(selectedProjectId)}/${encodeURIComponent(field.field_id)}`,
+    );
   }
 
   function changeProject(projectId: string) {
@@ -248,6 +304,37 @@ export default function DictionaryPage() {
               </option>
             ))}
           </select>
+
+            <div style={{
+              display: "flex",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: "8px",
+              marginTop: "8px",
+            }}>
+              {selectedProjectId &&
+              selectedProjectId === defaultProjectId ? (
+                <>
+                  <span className="field-subtext">Default project</span>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={removeProjectPreference}
+                  >
+                    Clear default
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={saveProjectPreference}
+                  disabled={!selectedProjectId || loadingProjects}
+                >
+                  Set as default
+                </button>
+              )}
+            </div>
 
           {projectMessage && (
             <p className="notice">{projectMessage}</p>
@@ -506,7 +593,7 @@ export default function DictionaryPage() {
                             type="button"
                             className="edit-governance-button"
                             onClick={() =>
-                              setSelectedField(field)
+                              openFieldGovernance(field)
                             }
                           >
                             Governance
@@ -521,25 +608,7 @@ export default function DictionaryPage() {
           )}
         </section>
 
-        {selectedField && (
-          <div key={selectedField.field_id}>
-            <FieldTechnicalMetadataPanel field={selectedField} />
 
-            <FieldProfilingPanel
-              field={selectedField}
-            />
-
-            <FieldGovernancePanel
-              field={selectedField}
-              clientId={
-                projects.find(
-                  (project) => project.id === selectedProjectId,
-                )?.client_id ?? ""
-              }
-              onClose={() => setSelectedField(null)}
-            />
-          </div>
-        )}
       </div>
     </>
   );

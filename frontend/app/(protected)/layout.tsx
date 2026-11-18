@@ -11,7 +11,7 @@ export default async function ProtectedLayout({
   const user = await requireSession();
 
   return (
-    <AppShell isInstallationAdmin={user.is_installation_admin}>
+    <AppShell isInstallationAdmin={user.is_installation_admin} userId={user.user_id}>
       {children}
     </AppShell>
   );

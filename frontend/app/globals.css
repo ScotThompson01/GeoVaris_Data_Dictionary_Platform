@@ -769,3 +769,58 @@ th {
 .org-chart-contact-close { float: right; padding: 8px 16px; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--p); cursor: pointer; font-weight: 600; }
 .org-chart-contact-close:hover { background: #f3edff; }
 
+
+
+/* Phase 6 - Dedicated field governance workspace */
+
+.field-governance-workspace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+    margin-top: 20px;
+}
+
+.field-governance-workspace > * {
+    min-width: 0;
+}
+
+.field-quality-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+    gap: 14px;
+    margin: 20px 0;
+}
+
+.field-quality-metric {
+    padding: 18px;
+    border: 1px solid var(--line);
+    border-top: 3px solid var(--p);
+    border-radius: 12px;
+    background: #faf8ff;
+    min-height: 110px;
+}
+
+.field-quality-metric h3 {
+    font-size: 13px;
+    color: var(--muted);
+    margin: 0 0 14px;
+}
+
+.field-quality-metric strong {
+    font-size: 18px;
+    color: var(--p);
+}
+
+.field-governance-workspace .governance-panel {
+    order: 0;
+}
+
+@media (max-width: 700px) {
+    .field-quality-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .field-quality-metric {
+        padding: 12px;
+    }
+}
