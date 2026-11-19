@@ -12,10 +12,10 @@ class ProfilingResultRead(BaseModel):
 
     row_count: int
     null_count: int
-    null_percentage: Decimal
+    null_percentage: Decimal | None
 
-    distinct_count: int
-    distinct_percentage: Decimal
+    distinct_count: int | None
+    distinct_percentage: Decimal | None
 
     minimum_value: str | None
     maximum_value: str | None

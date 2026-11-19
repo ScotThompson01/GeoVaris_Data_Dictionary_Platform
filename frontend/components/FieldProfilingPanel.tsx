@@ -16,7 +16,11 @@ function displayValue(value: string | number | null): string {
   return value === null ? "Not available" : String(value);
 }
 
-function displayPercentage(value: string): string {
+function displayPercentage(value: string | null): string {
+  if (value === null || value.trim() === "") {
+    return "Not available";
+  }
+
   const percentage = Number(value);
 
   return Number.isFinite(percentage)

@@ -5,6 +5,7 @@ from decimal import Decimal
 from sqlalchemy import (
     DateTime,
     ForeignKey,
+    BigInteger,
     Integer,
     Numeric,
     Text,
@@ -48,28 +49,28 @@ class ProfilingResult(Base):
     )
 
     row_count: Mapped[int] = mapped_column(
-        Integer,
+        BigInteger,
         nullable=False,
     )
 
     null_count: Mapped[int] = mapped_column(
-        Integer,
+        BigInteger,
         nullable=False,
     )
 
-    null_percentage: Mapped[Decimal] = mapped_column(
+    null_percentage: Mapped[Decimal | None] = mapped_column(
         Numeric(7, 4),
-        nullable=False,
+        nullable=True,
     )
 
-    distinct_count: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
+    distinct_count: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
     )
 
-    distinct_percentage: Mapped[Decimal] = mapped_column(
+    distinct_percentage: Mapped[Decimal | None] = mapped_column(
         Numeric(7, 4),
-        nullable=False,
+        nullable=True,
     )
 
     minimum_value: Mapped[str | None] = mapped_column(

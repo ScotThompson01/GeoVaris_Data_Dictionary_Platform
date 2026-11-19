@@ -80,10 +80,10 @@ export type ProfilingResult = {
 
   row_count: number;
   null_count: number;
-  null_percentage: string;
+  null_percentage: string | null;
 
-  distinct_count: number;
-  distinct_percentage: string;
+  distinct_count: number | null;
+  distinct_percentage: string | null;
 
   minimum_value: string | null;
   maximum_value: string | null;

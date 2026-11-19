@@ -391,3 +391,31 @@ class PostgreSQLConnector(BaseDatabaseConnector):
             ssl_root_cert=ssl_root_cert,
         )
 
+
+    def profile_field(
+        self,
+        *,
+        config: DatabaseConnectionConfig,
+        schema_name: str,
+        object_name: str,
+        field_name: str,
+        include_distinct: bool = False,
+        password: str | None = None,
+        statement_timeout_ms: int = 30000,
+        ssl_root_cert: str | None = None,
+    ):
+        """Profile a field using read-only source-side aggregates."""
+        from app.connectors.database.postgresql_profiling import (
+            profile_postgresql_field,
+        )
+
+        return profile_postgresql_field(
+            config=config,
+            schema_name=schema_name,
+            object_name=object_name,
+            field_name=field_name,
+            include_distinct=include_distinct,
+            password=password,
+            statement_timeout_ms=statement_timeout_ms,
+            ssl_root_cert=ssl_root_cert,
+        )
