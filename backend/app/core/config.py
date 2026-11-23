@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     # A positive installation ceiling must be explicitly configured.
     dq_execution_max_concurrent: int = 0
 
+    # PostgreSQL profiling execution remains disabled until a dedicated
+    # authorization and orchestration workflow is implemented and approved.
+    postgresql_profiling_execution_enabled: bool = False
+
     # PostgreSQL verification is disabled until explicitly configured.
     postgresql_verification_enabled: bool = False
 
