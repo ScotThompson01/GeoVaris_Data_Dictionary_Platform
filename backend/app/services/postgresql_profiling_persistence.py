@@ -5,6 +5,7 @@ Authorization must be established by the calling workflow.
 """
 
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -95,3 +96,49 @@ def persist_postgresql_field_profile(
 
     db.flush()
     return result
+def complete_postgresql_profiling_scan(
+    *,
+    db: Session,
+    scan_id: uuid.UUID,
+) -> Scan:
+    """Stage scan completion after profiling results have been saved.
+
+    The caller owns the transaction and must commit the profiling
+    measurements and completed scan status together.
+    """
+
+    scan = db.get(Scan, scan_id)
+    if scan is None:
+        raise ValueError("Profiling scan not found.")
+
+    if scan.scan_type not in {
+        "basic_profile",
+        "approved_sample",
+        "full_profile",
+    }:
+        raise ValueError("Scan is not a profiling scan.")
+
+    if scan.status != "running":
+        raise ValueError("Profiling scan must be running.")
+
+    source = db.get(DataSource, scan.data_source_id)
+    if source is None or source.source_type != "postgresql":
+        raise ValueError("PostgreSQL profiling source not found.")
+
+    existing_result = db.scalar(
+        select(ProfilingResult.id).where(
+            ProfilingResult.scan_id == scan_id
+        ).limit(1)
+    )
+
+    if existing_result is None:
+        raise ValueError(
+            "Cannot complete a profiling scan without measurements."
+        )
+
+    scan.status = "completed"
+    scan.completed_at = datetime.now(timezone.utc)
+    scan.error_message = None
+
+    db.flush()
+    return scan

@@ -10,6 +10,7 @@ import pytest
 from app.models.profiling_result import ProfilingResult
 from app.profiling.database_profile import DatabaseFieldProfile
 from app.services.postgresql_profiling_persistence import (
+    complete_postgresql_profiling_scan,
     persist_postgresql_field_profile,
 )
 
@@ -177,5 +178,125 @@ def test_missing_scan_is_rejected() -> None:
         persist(db)
 
     db.add.assert_not_called()
+    db.flush.assert_not_called()
+    db.commit.assert_not_called()
+
+def make_completion_session(
+    *,
+    scan_type: str = "basic_profile",
+    scan_status: str = "running",
+    source_type: str = "postgresql",
+    result_exists: bool = True,
+) -> tuple[MagicMock, SimpleNamespace]:
+    from app.models.scan import Scan
+    from app.models.data_source import DataSource
+
+    db = MagicMock()
+
+    scan = SimpleNamespace(
+        id=SCAN_ID,
+        data_source_id=SOURCE_ID,
+        scan_type=scan_type,
+        status=scan_status,
+        completed_at=None,
+        error_message="previous status",
+    )
+
+    source = SimpleNamespace(
+        id=SOURCE_ID,
+        source_type=source_type,
+    )
+
+    values = {
+        (Scan, SCAN_ID): scan,
+        (DataSource, SOURCE_ID): source,
+    }
+
+    db.get.side_effect = lambda model, identity: values.get(
+        (model, identity)
+    )
+
+    db.scalar.return_value = (
+        uuid.uuid4() if result_exists else None
+    )
+
+    return db, scan
+
+
+def test_profiling_scan_completion_stages_success_without_commit() -> None:
+    from datetime import datetime, timezone
+
+    db, scan = make_completion_session()
+
+    result = complete_postgresql_profiling_scan(
+        db=db,
+        scan_id=SCAN_ID,
+    )
+
+    assert result is scan
+    assert scan.status == "completed"
+    assert isinstance(scan.completed_at, datetime)
+    assert scan.completed_at.tzinfo is not None
+    assert scan.completed_at.utcoffset().total_seconds() == 0
+    assert scan.error_message is None
+
+    db.flush.assert_called_once()
+    db.commit.assert_not_called()
+    db.rollback.assert_not_called()
+
+
+def test_profiling_scan_completion_rejects_empty_scan() -> None:
+    db, scan = make_completion_session(result_exists=False)
+
+    with pytest.raises(ValueError, match="without measurements"):
+        complete_postgresql_profiling_scan(
+            db=db,
+            scan_id=SCAN_ID,
+        )
+
+    assert scan.status == "running"
+    assert scan.completed_at is None
+    db.flush.assert_not_called()
+    db.commit.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"scan_type": "metadata"}, "not a profiling scan"),
+        ({"scan_status": "completed"}, "must be running"),
+        ({"scan_status": "failed"}, "must be running"),
+        ({"source_type": "csv"}, "source not found"),
+    ],
+)
+def test_profiling_scan_completion_rejects_invalid_state(
+    override: dict,
+    message: str,
+) -> None:
+    db, scan = make_completion_session(**override)
+
+    with pytest.raises(ValueError, match=message):
+        complete_postgresql_profiling_scan(
+            db=db,
+            scan_id=SCAN_ID,
+        )
+
+    assert scan.status != "completed" or override.get(
+        "scan_status"
+    ) == "completed"
+    db.flush.assert_not_called()
+    db.commit.assert_not_called()
+
+
+def test_profiling_scan_completion_rejects_missing_scan() -> None:
+    db, _ = make_completion_session()
+    db.get.side_effect = lambda model, identity: None
+
+    with pytest.raises(ValueError, match="Profiling scan not found"):
+        complete_postgresql_profiling_scan(
+            db=db,
+            scan_id=SCAN_ID,
+        )
+
     db.flush.assert_not_called()
     db.commit.assert_not_called()
